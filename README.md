@@ -26,13 +26,47 @@ Deziporama never connects to Discord. It only watches your Downloads folder, so 
 
 - Windows 10 or 11.
 - [Python 3](https://www.python.org/downloads/). During installation, tick **"Add Python to PATH"**.
+- [Git](https://git-scm.com/download/win), only for the installation with Git (option 1 below).
 
 ## Installation
 
-1. Download or clone this repository anywhere on your PC.
-2. Double-click **`Start Deziporama.bat`**.
+### Option 1: with Git
+
+Open a **Command Prompt** (`cmd`) in the folder where you want Deziporama, then run:
+
+```bat
+git clone https://github.com/marche-obscure/Deziporama.git
+cd Deziporama
+"Start Deziporama.bat"
+```
+
+### Option 2: without Git
+
+1. On this page, click **Code**, then **Download ZIP**.
+2. Extract the zip anywhere on your PC.
+3. Double-click **`Start Deziporama.bat`** in the extracted folder.
+
+### First launch
 
 The first launch creates a private Python environment (`.venv`) and installs the dependencies. This takes a minute and needs an Internet connection. Later launches are instant.
+
+If the launcher reports an error, you can run the same steps by hand in a Command Prompt opened in the Deziporama folder:
+
+```bat
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\pythonw.exe app.py
+```
+
+### Update
+
+With Git, from the Deziporama folder:
+
+```bat
+git pull
+```
+
+Without Git, download the new zip and extract it over the old folder. Your settings (`config.json`) are kept.
 
 On the first launch, Deziporama asks for your language (English, Français or Deutsch), then offers to create a desktop shortcut.
 You can change the language later with the selector in the top-right corner of the banner.
