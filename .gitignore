@@ -3,3 +3,4 @@
 .pytest_cache/
 .venv/
 config.json
+.superpowers/
