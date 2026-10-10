@@ -1,0 +1,131 @@
+import json
+import os
+import queue
+import time
+
+import pytest
+
+import watcher
+from watcher import FolderWatcher, is_candidate, wait_until_ready
+
+UI = {"nodes": [], "links": []}
+
+
+@pytest.fixture(autouse=True)
+def fast(monkeypatch):
+    monkeypatch.setattr(watcher, "READY_INTERVAL", 0.1)
+
+
+@pytest.fixture
+def env(tmp_path):
+    watch, dest = tmp_path / "dl", tmp_path / "wf"
+    watch.mkdir()
+    dest.mkdir()
+    results = queue.Queue()
+    w = FolderWatcher(watch, lambda: dest, results.put)
+    yield w, watch, dest, results
+    w.stop()
+
+
+def wait_result(q, timeout=10):
+    return q.get(timeout=timeout)
+
+
+def write_wf(path):
+    path.write_text(json.dumps(UI), encoding="utf-8")
+
+
+def test_is_candidate(tmp_path):
+    for name in ["a.JSON", "b.zip"]:
+        assert is_candidate(tmp_path / name)
+    for name in ["c.crdownload", "d.tmp", "e.part", "f.png", "g.json.crdownload"]:
+        assert not is_candidate(tmp_path / name)
+
+
+def test_wait_until_ready_stable(tmp_path):
+    f = tmp_path / "a.json"
+    f.write_text("x", encoding="utf-8")
+    assert wait_until_ready(f, timeout=5, interval=0.1)
+
+
+def test_wait_until_ready_missing(tmp_path):
+    assert not wait_until_ready(tmp_path / "absent.json", timeout=0.5, interval=0.1)
+
+
+def test_new_json_is_imported(env):
+    w, watch, dest, results = env
+    w.start()
+    write_wf(watch / "wf.json")
+    r = wait_result(results)
+    assert r.status == "imported"
+    assert (dest / "wf.json").exists()
+
+
+def test_rename_from_crdownload_is_processed(env):
+    w, watch, dest, results = env
+    w.start()
+    write_wf(watch / "wf.json.crdownload")
+    time.sleep(0.3)
+    os.rename(watch / "wf.json.crdownload", watch / "wf.json")
+    r = wait_result(results)
+    assert r.status == "imported"
+    assert (dest / "wf.json").exists()
+
+
+def test_file_processed_once(env):
+    w, watch, dest, results = env
+    w.start()
+    f = watch / "wf.json"
+    with open(f, "w", encoding="utf-8") as fh:
+        fh.write('{"nodes": [],')
+        fh.flush()
+        fh.write(' "links": []')
+        fh.flush()
+        fh.write("}")
+    assert wait_result(results).status == "imported"
+    with pytest.raises(queue.Empty):
+        results.get(timeout=3)
+
+
+def test_process_existing(env):
+    w, watch, dest, results = env
+    write_wf(watch / "wf.json")
+    w.start(process_existing=True)
+    assert wait_result(results).status == "imported"
+
+
+def test_existing_not_processed_by_default(env):
+    w, watch, dest, results = env
+    write_wf(watch / "wf.json")
+    w.start()
+    with pytest.raises(queue.Empty):
+        results.get(timeout=2)
+    assert (watch / "wf.json").exists()
+
+
+def test_get_dest_read_per_file(tmp_path):
+    watch = tmp_path / "dl"
+    watch.mkdir()
+    current = {"dest": tmp_path / "a"}
+    results = queue.Queue()
+    w = FolderWatcher(watch, lambda: current["dest"], results.put)
+    try:
+        w.start()
+        write_wf(watch / "un.json")
+        assert wait_result(results).target == tmp_path / "a" / "un.json"
+        current["dest"] = tmp_path / "b"
+        write_wf(watch / "deux.json")
+        assert wait_result(results).target == tmp_path / "b" / "deux.json"
+    finally:
+        w.stop()
+
+
+def test_stop(env):
+    w, watch, dest, results = env
+    w.start()
+    assert w.running
+    w.stop()
+    assert not w.running
+    write_wf(watch / "wf.json")
+    with pytest.raises(queue.Empty):
+        results.get(timeout=2)
