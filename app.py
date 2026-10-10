@@ -1,4 +1,4 @@
-"""Fenêtre de l'importeur de workflows ComfyUI."""
+"""Deziporama : fenêtre de l'importeur de workflows ComfyUI."""
 
 import json
 import os
@@ -98,8 +98,8 @@ def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, obj
 def ask_already_running(parent) -> bool:
     """Avertit d'un double lancement ; vrai si l'utilisateur veut afficher la copie déjà lancée."""
     return choice_dialog(
-        parent, "Déjà lancé",
-        "L'importeur de workflows est déjà lancé\n"
+        parent, TITLE,
+        f"{TITLE} est déjà lancé\n"
         "(son icône se trouve près de l'horloge).\n\n"
         "Voulez-vous afficher sa fenêtre ?",
         [("Afficher celui déjà lancé", True), ("Annuler", False)]) is True

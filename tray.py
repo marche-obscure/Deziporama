@@ -5,7 +5,7 @@ from typing import Callable
 import pystray
 from PIL import Image, ImageDraw
 
-TITLE = "Importeur de workflows ComfyUI"
+TITLE = "Deziporama"
 
 
 def make_image() -> Image.Image:

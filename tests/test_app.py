@@ -302,3 +302,31 @@ def test_dialogs_centered_on_screen(tk_root, hidden_parent):
         assert abs(cy - sy) <= 60, measured
     finally:
         top.destroy()
+
+
+def test_application_name(window):
+    assert window.root.title() == "Deziporama"
+    assert window.tray.tooltip.startswith("Deziporama — surveillance")
+
+
+def test_already_running_message_uses_name(tk_root):
+    top = tk.Toplevel(tk_root)
+    texts = []
+
+    def read_then_cancel():
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+        dialogs = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)]
+        texts.extend(w.cget("text") for d in dialogs for w in descendants(d) if w.winfo_class() == "TLabel")
+        texts.extend(d.title() for d in dialogs)
+        _click_in_dialog(top, "Annuler")
+
+    try:
+        top.after(300, read_then_cancel)
+        app.ask_already_running(top)
+        assert any(t.startswith("Deziporama est déjà lancé") for t in texts), texts
+        assert "Deziporama" in texts
+    finally:
+        top.destroy()

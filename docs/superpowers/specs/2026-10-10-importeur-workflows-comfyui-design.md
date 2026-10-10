@@ -1,4 +1,4 @@
-# Importeur de workflows ComfyUI — Design
+# Deziporama — importeur de workflows ComfyUI — Design
 
 Date : 2026-10-10
 
