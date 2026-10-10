@@ -1,6 +1,7 @@
 """Détection et import des workflows ComfyUI (.json / .zip)."""
 
 import json
+import re
 import shutil
 import tempfile
 import zipfile
@@ -116,6 +117,12 @@ def _import_json(source: Path, dest_dir: Path) -> ImportResult:
     return ImportResult("imported", source, target)
 
 
+def capitalize_words(name: str) -> str:
+    """Majuscule en tête de chaque mot, reste en minuscules (mots séparés par espace, _ ou -)."""
+    return "".join(part[:1].upper() + part[1:].lower()
+                   for part in re.split(r"([ _-]+)", name))
+
+
 def _is_macos_metadata(name: str) -> bool:
     """Dossier technique ajouté par le Finder de macOS, sans intérêt pour ComfyUI."""
     return name.split("/", 1)[0] == "__MACOSX"
@@ -146,11 +153,11 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
         folder = _single_root_folder(tmp)
         if folder:
             # Le zip ne contient qu'un dossier : on le place directement, sans double dossier.
-            target = unique_path(dest_dir / folder.name)
+            target = unique_path(dest_dir / capitalize_words(folder.name))
             folder.rename(target)
             shutil.rmtree(tmp, ignore_errors=True)
         else:
-            target = unique_path(dest_dir / source.stem)
+            target = unique_path(dest_dir / capitalize_words(source.stem))
             tmp.rename(target)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)

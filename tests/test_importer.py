@@ -127,7 +127,7 @@ def test_import_zip_extracts_all(tmp_path):
     assert (dest / "pack" / "wf.json").exists()
     assert (dest / "pack" / "images" / "a.png").read_bytes() == b"png"
     assert trashed == [str(src)]
-    assert leftovers(dest) == ["pack"]
+    assert leftovers(dest) == ["Pack"]
 
 
 def test_import_zip_duplicate_folder(tmp_path):
@@ -135,7 +135,7 @@ def test_import_zip_duplicate_folder(tmp_path):
     (dest / "pack").mkdir(parents=True)
     src = make_zip(tmp_path / "pack.zip", {"wf.json": json.dumps(UI)})
     r = import_file(src, dest, trash=lambda p: None)
-    assert r.target == dest / "pack (2)"
+    assert r.target.name == "Pack (2)"
 
 
 @pytest.mark.parametrize("evil", ["../evil.txt", "C:/evil.txt", "/evil.txt"])
@@ -274,7 +274,7 @@ def test_single_root_folder_is_flattened(tmp_path):
     assert r.target == dest / "EP33 Workflows"
     assert (dest / "EP33 Workflows" / "wf.json").exists()
     assert (dest / "EP33 Workflows" / "images" / "a.png").exists()
-    assert leftovers(dest) == ["EP33 Workflows"]
+    assert leftovers(dest) == ["Ep33 Workflows"]
 
 
 def test_single_folder_plus_root_file_not_flattened(tmp_path):
@@ -306,7 +306,7 @@ def test_macosx_folder_ignored_and_not_extracted(tmp_path):
     assert r.target == dest / "EP33"
     assert (dest / "EP33" / "wf.json").exists()
     assert not list(dest.rglob("__MACOSX"))
-    assert leftovers(dest) == ["EP33"]
+    assert leftovers(dest) == ["Ep33"]
 
 
 def test_flattened_folder_name_collision(tmp_path):
@@ -314,7 +314,7 @@ def test_flattened_folder_name_collision(tmp_path):
     (dest / "EP33 Workflows").mkdir(parents=True)
     src = make_zip(tmp_path / "Ep33 Workflows.zip", {"EP33 Workflows/wf.json": json.dumps(UI)})
     r = import_file(src, dest, trash=lambda p: None)
-    assert r.target == dest / "EP33 Workflows (2)"
+    assert r.target.name == "Ep33 Workflows (2)"
     assert (dest / "EP33 Workflows (2)" / "wf.json").exists()
 
 
@@ -326,3 +326,50 @@ def test_single_root_folder_with_name_sanitized_by_windows(tmp_path):
     assert r.status == "imported", r.message
     assert r.target == dest / "EP33"
     assert (dest / "EP33" / "wf.json").exists()
+
+
+# --- Casse du dossier créé par le dézippage ------------------------------------
+
+from importer import capitalize_words  # noqa: E402
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("EP33 Workflows", "Ep33 Workflows"),
+    ("FLUX dev PACK", "Flux Dev Pack"),
+    ("my_flux-pack", "My_Flux-Pack"),
+    ("l'image", "L'image"),
+    ("33 WORKFLOWS", "33 Workflows"),
+    ("Été  ÉCOLE", "Été  École"),
+])
+def test_capitalize_words(raw, expected):
+    assert capitalize_words(raw) == expected
+
+
+def test_flattened_folder_name_capitalized_content_untouched(tmp_path):
+    src = make_zip(tmp_path / "Ep33 Workflows.zip", {
+        "EP33 Workflows/WF_Main.json": json.dumps(UI),
+        "EP33 Workflows/IMAGES/Ref A.PNG": b"png",
+    })
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target.name == "Ep33 Workflows"
+    assert leftovers(dest) == ["Ep33 Workflows"]
+    assert sorted(p.name for p in (dest / "Ep33 Workflows").iterdir()) == ["IMAGES", "WF_Main.json"]
+    assert [p.name for p in (dest / "Ep33 Workflows" / "IMAGES").iterdir()] == ["Ref A.PNG"]
+
+
+def test_zip_named_folder_capitalized(tmp_path):
+    src = make_zip(tmp_path / "FLUX dev PACK.zip", {"wf.json": json.dumps(UI)})
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target.name == "Flux Dev Pack"
+    assert leftovers(dest) == ["Flux Dev Pack"]
+
+
+def test_capitalized_name_collision_ignores_case(tmp_path):
+    dest = tmp_path / "out"
+    (dest / "EP33 WORKFLOWS").mkdir(parents=True)
+    src = make_zip(tmp_path / "x.zip", {"EP33 Workflows/wf.json": json.dumps(UI)})
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target.name == "Ep33 Workflows (2)"
+    assert sorted(leftovers(dest)) == ["EP33 WORKFLOWS", "Ep33 Workflows (2)"]
