@@ -10,6 +10,11 @@ from typing import Callable
 
 from send2trash import send2trash
 
+MAX_JSON_BYTES = 50 * 1024 * 1024          # au-delà, un .json n'est pas considéré comme un workflow
+MAX_EXTRACT_BYTES = 2 * 1024 * 1024 * 1024  # taille maximale d'une archive une fois extraite
+# Erreurs de lecture qui signifient « ce n'est pas un workflow exploitable » plutôt qu'un échec.
+_UNREADABLE = (ValueError, RecursionError, RuntimeError, NotImplementedError, MemoryError)
+
 
 @dataclass
 class ImportResult:
@@ -31,12 +36,14 @@ def is_workflow_data(data: object) -> bool:
 def _is_workflow_text(text: str) -> bool:
     try:
         return is_workflow_data(json.loads(text))
-    except ValueError:
+    except _UNREADABLE:
         return False
 
 
 def is_workflow_json(path: Path) -> bool:
     try:
+        if Path(path).stat().st_size > MAX_JSON_BYTES:
+            return False
         return _is_workflow_text(Path(path).read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError):
         return False
@@ -48,13 +55,15 @@ def is_workflow_zip(path: Path) -> bool:
             for info in z.infolist():
                 if info.is_dir() or not info.filename.lower().endswith(".json"):
                     continue
+                if info.file_size > MAX_JSON_BYTES:
+                    continue
                 try:
                     text = z.read(info).decode("utf-8-sig")
-                except UnicodeDecodeError:
+                except (UnicodeDecodeError, *_UNREADABLE):
                     continue
                 if _is_workflow_text(text):
                     return True
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except (zipfile.BadZipFile, OSError, *_UNREADABLE):
         return False
     return False
 
@@ -74,6 +83,9 @@ def unique_path(path: Path) -> Path:
 
 def _check_entries(z: zipfile.ZipFile, root: Path) -> None:
     """Refuse toute entrée dont le chemin sortirait du dossier d'extraction."""
+    total = sum(info.file_size for info in z.infolist())
+    if total > MAX_EXTRACT_BYTES:
+        raise ValueError(f"archive trop volumineuse une fois extraite ({total / 1024**3:.1f} Go)")
     root = root.resolve()
     for name in z.namelist():
         win = PureWindowsPath(name)
@@ -87,8 +99,20 @@ def _import_json(source: Path, dest_dir: Path) -> ImportResult:
     if not is_workflow_json(source):
         return ImportResult("ignored", source, None, "pas un workflow ComfyUI")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    target = unique_path(dest_dir / source.name)
-    shutil.move(str(source), str(target))
+    # Copie sous un nom temporaire puis renommage : jamais de workflow tronqué dans ComfyUI.
+    tmp = dest_dir / f".import-{source.name}.tmp"
+    try:
+        shutil.copyfile(source, tmp)
+        target = unique_path(dest_dir / source.name)
+        tmp.rename(target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    try:
+        source.unlink()
+    except OSError as e:
+        return ImportResult("imported", source, target,
+                            f"le fichier d'origine n'a pas pu être supprimé : {e}")
     return ImportResult("imported", source, target)
 
 

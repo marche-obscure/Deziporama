@@ -165,3 +165,36 @@ def test_empty_placeholder_not_reported(env):
     os.replace(watch / "wf.json.part", watch / "wf.json")
     r = wait_result(results)
     assert r.status == "imported"
+
+
+def test_failed_file_can_be_retried(tmp_path):
+    watch = tmp_path / "dl"
+    watch.mkdir()
+    blocker = tmp_path / "bloque"
+    blocker.write_text("x", encoding="utf-8")
+    current = {"dest": blocker / "sous"}  # destination impossible à créer
+    results = queue.Queue()
+    w = FolderWatcher(watch, lambda: current["dest"], results.put)
+    try:
+        w.start()
+        write_wf(watch / "wf.json")
+        assert wait_result(results).status == "error"
+        assert w.failed_count == 1
+        current["dest"] = tmp_path / "ok"  # le disque est revenu
+        w.retry_failed()
+        assert wait_result(results).status == "imported"
+        assert (tmp_path / "ok" / "wf.json").exists()
+        assert w.failed_count == 0
+    finally:
+        w.stop()
+
+
+def test_healthy_false_when_watch_dir_disappears(env):
+    w, watch, dest, results = env
+    w.start()
+    assert w.healthy
+    w.stop()  # libère le dossier sous Windows avant suppression
+    w.start()
+    w._observer.stop()
+    w._observer.join()
+    assert not w.healthy

@@ -1,7 +1,9 @@
 """Fenêtre de l'importeur de workflows ComfyUI."""
 
 import json
+import os
 import queue
+import re
 import time
 import tkinter as tk
 from pathlib import Path
@@ -18,6 +20,14 @@ DEFAULTS = {
     "process_existing": False,
 }
 ROOT_LABEL = "(racine)"
+HEALTH_CHECK_MS = 2000
+_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def valid_subfolder_name(name: str) -> bool:
+    """Un seul niveau de dossier, dans la racine des workflows, nom autorisé par Windows."""
+    name = name.strip()
+    return bool(name) and not name.startswith(".") and not _FORBIDDEN.search(name)
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -27,11 +37,19 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         return dict(DEFAULTS)
     if not isinstance(data, dict):
         return dict(DEFAULTS)
-    return {key: data.get(key, default) for key, default in DEFAULTS.items()}
+    return {key: data[key] if type(data.get(key)) is type(default) else default
+            for key, default in DEFAULTS.items()}
 
 
 def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
-    Path(path).write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Écriture dans un fichier temporaire puis remplacement : un plantage ne perd pas les réglages.
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 class App:
@@ -64,8 +82,14 @@ class App:
         ttk.Checkbutton(frame, text="Traiter aussi les fichiers déjà présents au démarrage",
                         variable=self.existing_var).grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
 
-        self.toggle_btn = ttk.Button(frame, text="Démarrer", command=self._toggle)
-        self.toggle_btn.grid(row=4, column=0, columnspan=3, sticky="ew", pady=6)
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=4, column=0, columnspan=3, sticky="ew", pady=6)
+        buttons.columnconfigure(0, weight=1)
+        self.toggle_btn = ttk.Button(buttons, text="Démarrer", command=self._toggle)
+        self.toggle_btn.grid(row=0, column=0, sticky="ew")
+        self.retry_btn = ttk.Button(buttons, text="Réessayer les erreurs", command=self._retry,
+                                    state="disabled")
+        self.retry_btn.grid(row=0, column=1, padx=(5, 0))
 
         self.log = tk.Text(frame, height=14, state="disabled", wrap="word")
         self.log.grid(row=5, column=0, columnspan=3, sticky="nsew")
@@ -80,6 +104,7 @@ class App:
         self._refresh_subfolders()
         root.protocol("WM_DELETE_WINDOW", self._close)
         root.after(200, self._drain)
+        root.after(HEALTH_CHECK_MS, self._check_health)
 
     # --- Construction ---------------------------------------------------------
 
@@ -111,7 +136,13 @@ class App:
 
     def _new_subfolder(self) -> None:
         name = simpledialog.askstring("Nouveau sous-dossier", "Nom du sous-dossier :", parent=self.root)
-        if not name or not name.strip():
+        if name is None:
+            return
+        if not valid_subfolder_name(name):
+            messagebox.showerror(
+                "Nom invalide",
+                "Le nom ne doit pas commencer par un point ni contenir \\ / : * ? \" < > |",
+                parent=self.root)
             return
         name = name.strip()
         try:
@@ -152,11 +183,30 @@ class App:
         self._set_running(True)
         self._write(f"Surveillance de {watch_dir} démarrée.", "ignored")
 
+    def _retry(self) -> None:
+        if self.watcher and self.watcher.running and self.watcher.failed_count:
+            self._write(f"Nouvelle tentative pour {self.watcher.failed_count} fichier(s)…", "ignored")
+            self.watcher.retry_failed()
+        self._update_retry()
+
+    def _update_retry(self) -> None:
+        active = bool(self.watcher and self.watcher.running and self.watcher.failed_count)
+        self.retry_btn.configure(state="normal" if active else "disabled")
+
+    def _check_health(self) -> None:
+        if self.watcher and self.watcher.running and not self.watcher.healthy:
+            self.watcher.stop()
+            self._set_running(False)
+            self._write(f"Erreur : surveillance interrompue, le dossier {self.watcher.watch_dir} "
+                        "est introuvable. Vérifiez-le puis cliquez sur Démarrer.", "error")
+        self.root.after(HEALTH_CHECK_MS, self._check_health)
+
     def _set_running(self, running: bool) -> None:
         state = "disabled" if running else "normal"
         for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
             widget.configure(state=state)
         self.toggle_btn.configure(text="Arrêter" if running else "Démarrer")
+        self._update_retry()
 
     def _drain(self) -> None:
         while True:
@@ -172,7 +222,9 @@ class App:
             elif result.status == "ignored":
                 self._write(f"Ignoré (pas un workflow) : {name}", "ignored")
             else:
-                self._write(f"Erreur : {name} — {result.message}", "error")
+                self._write(f"Erreur : {name} — {result.message} "
+                            "(corrigez puis cliquez sur « Réessayer les erreurs »)", "error")
+        self._update_retry()
         self.root.after(200, self._drain)
 
     # --- Divers ---------------------------------------------------------------

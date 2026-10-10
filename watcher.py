@@ -72,24 +72,47 @@ class FolderWatcher:
         self._todo: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._seen: dict[Path, tuple[int, int]] = {}
+        self._failed: set[Path] = set()
+        self._lock = threading.Lock()
 
     @property
     def running(self) -> bool:
         return self._thread is not None
+
+    @property
+    def healthy(self) -> bool:
+        """Faux si la surveillance s'est interrompue (dossier disparu, observateur arrêté)."""
+        return (self._observer is not None and self._observer.is_alive()
+                and self.watch_dir.is_dir())
+
+    @property
+    def failed_count(self) -> int:
+        with self._lock:
+            return len(self._failed)
+
+    def retry_failed(self) -> None:
+        """Remet en file les fichiers dont l'import a échoué (ex. disque revenu)."""
+        with self._lock:
+            paths, self._failed = sorted(self._failed), set()
+        for path in paths:
+            self._seen.pop(path, None)
+            self._todo.put(path)
 
     def start(self, process_existing: bool = False) -> None:
         if self.running:
             return
         self._todo = queue.Queue()
         self._stop = threading.Event()
-        if process_existing:
-            for path in sorted(self.watch_dir.iterdir()):
-                if path.is_file() and is_candidate(path):
-                    self._todo.put(path)
+        # L'observateur démarre avant le parcours des fichiers existants : un fichier arrivé
+        # entre les deux est vu au moins une fois (les doublons sont écartés par _process).
         observer = Observer()
         observer.schedule(_Handler(self._todo), str(self.watch_dir), recursive=False)
         observer.start()
         self._observer = observer
+        if process_existing:
+            for path in sorted(self.watch_dir.iterdir()):
+                if path.is_file() and is_candidate(path):
+                    self._todo.put(path)
         self._thread = threading.Thread(target=self._work, args=(self._todo, self._stop), daemon=True)
         self._thread.start()
 
@@ -143,4 +166,7 @@ class FolderWatcher:
         else:
             result = import_file(path, Path(self._get_dest()))
         self._seen[path] = self._signature(path)
+        if result.status == "error":
+            with self._lock:
+                self._failed.add(path)
         self._on_result(result)

@@ -179,3 +179,83 @@ def test_trash_failure_still_reported_imported(tmp_path):
     assert r.status == "imported"
     assert r.target == tmp_path / "out" / "pack"
     assert "Corbeille" in r.message
+
+
+# --- Robustesse (points mineurs de la relecture) ------------------------------
+
+import importer  # noqa: E402
+
+
+def test_interrupted_json_copy_leaves_nothing(tmp_path, monkeypatch):
+    src = write_wf(tmp_path / "wf.json")
+    dest = tmp_path / "out"
+
+    def broken_copy(a, b, *args, **kwargs):
+        with open(b, "wb") as fh:
+            fh.write(b'{"nodes"')  # copie partielle
+        raise OSError("disque débranché")
+
+    monkeypatch.setattr(importer.shutil, "copyfile", broken_copy)
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.status == "error"
+    assert src.exists()
+    assert leftovers(dest) == []
+
+
+def test_json_source_undeletable_still_imported(tmp_path, monkeypatch):
+    src = write_wf(tmp_path / "wf.json")
+    real_unlink = importer.Path.unlink
+
+    def locked_unlink(self, *a, **k):
+        if self == src:
+            raise PermissionError("verrouillé")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(importer.Path, "unlink", locked_unlink)
+    r = import_file(src, tmp_path / "out", trash=lambda p: None)
+    assert r.status == "imported"
+    assert (tmp_path / "out" / "wf.json").exists()
+    assert r.message
+
+
+def test_very_deep_json_ignored(tmp_path):
+    f = tmp_path / "deep.json"
+    f.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+    assert not is_workflow_json(f)
+    assert import_file(f, tmp_path / "out", trash=lambda p: None).status == "ignored"
+
+
+def test_encrypted_zip_ignored(tmp_path):
+    src = make_zip(tmp_path / "secret.zip", {"wf.json": json.dumps(UI)})
+    # zipfile ne sait pas écrire de zip chiffré : on positionne le bit « chiffré »
+    # dans l'en-tête local et dans le répertoire central ; la lecture exige alors un mot de passe.
+    raw = bytearray(src.read_bytes())
+    raw[raw.find(b"PK\x03\x04") + 6] |= 0x1
+    raw[raw.find(b"PK\x01\x02") + 8] |= 0x1
+    src.write_bytes(bytes(raw))
+    assert not is_workflow_zip(src)
+    assert import_file(src, tmp_path / "out", trash=lambda p: None).status == "ignored"
+
+
+def test_oversized_json_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(importer, "MAX_JSON_BYTES", 10)
+    f = write_wf(tmp_path / "wf.json")
+    assert not is_workflow_json(f)
+
+
+def test_oversized_json_entry_in_zip_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(importer, "MAX_JSON_BYTES", 10)
+    z = make_zip(tmp_path / "p.zip", {"wf.json": json.dumps(UI)})
+    assert not is_workflow_zip(z)
+
+
+def test_zip_too_big_when_extracted_is_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(importer, "MAX_EXTRACT_BYTES", 100)
+    src = make_zip(tmp_path / "pack.zip", {"wf.json": json.dumps(UI), "big.bin": b"0" * 1000})
+    dest = tmp_path / "out"
+    trashed = []
+    r = import_file(src, dest, trash=trashed.append)
+    assert r.status == "error"
+    assert "volumineuse" in r.message
+    assert trashed == [] and src.exists()
+    assert leftovers(dest) == []
