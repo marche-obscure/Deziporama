@@ -56,6 +56,15 @@ def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def center_on_screen(window) -> None:
+    """Place la fenêtre au centre de l'écran (Tk la mettrait en haut à gauche)."""
+    window.update_idletasks()
+    width, height = window.winfo_reqwidth(), window.winfo_reqheight()
+    x = (window.winfo_screenwidth() - width) // 2
+    y = (window.winfo_screenheight() - height) // 2
+    window.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+
 def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, object]]):
     """Boîte modale à boutons ; renvoie la valeur du bouton cliqué (None si fermée)."""
     dialog = tk.Toplevel(parent)
@@ -80,6 +89,7 @@ def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, obj
         ttk.Button(row, text=label, command=lambda v=value: pick(v)).pack(side="left", padx=3)
     dialog.protocol("WM_DELETE_WINDOW", lambda: pick(None))
     dialog.bind("<Escape>", lambda e: pick(None))
+    center_on_screen(dialog)
     dialog.grab_set()
     parent.wait_window(dialog)
     return choice["value"]

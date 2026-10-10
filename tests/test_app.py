@@ -277,3 +277,28 @@ def test_already_running_dialog_visible_with_hidden_parent(tk_root):
         assert seen == [True]
     finally:
         top.destroy()
+
+
+@pytest.mark.parametrize("hidden_parent", [False, True])
+def test_dialogs_centered_on_screen(tk_root, hidden_parent):
+    top = tk.Toplevel(tk_root)
+    if hidden_parent:
+        top.withdraw()
+    measured = []
+
+    def measure_then_click():
+        d = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)][0]
+        d.update_idletasks()
+        cx = d.winfo_rootx() + d.winfo_width() // 2
+        cy = d.winfo_rooty() + d.winfo_height() // 2
+        measured.append((cx, cy, d.winfo_screenwidth() // 2, d.winfo_screenheight() // 2))
+        _click_in_dialog(top, "Annuler")
+
+    try:
+        top.after(500, measure_then_click)
+        app.ask_already_running(top)
+        cx, cy, sx, sy = measured[0]
+        assert abs(cx - sx) <= 40, measured
+        assert abs(cy - sy) <= 60, measured
+    finally:
+        top.destroy()
