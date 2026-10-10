@@ -1,4 +1,4 @@
-"""Deziporama : fenêtre de l'importeur de workflows ComfyUI."""
+"""Deziporama: window of the ComfyUI workflow importer."""
 
 import json
 import os
@@ -28,13 +28,13 @@ DEFAULTS = {
     "process_existing": False,
     "desktop_shortcut_asked": False,
 }
-ROOT_LABEL = "(racine)"
+ROOT_LABEL = "(root)"
 HEALTH_CHECK_MS = 2000
 _FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def valid_subfolder_name(name: str) -> bool:
-    """Un seul niveau de dossier, dans la racine des workflows, nom autorisé par Windows."""
+    """A single folder level, inside the workflows root, with a name Windows accepts."""
     name = name.strip()
     return bool(name) and not name.startswith(".") and not _FORBIDDEN.search(name)
 
@@ -51,7 +51,7 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
 
 
 def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
-    # Écriture dans un fichier temporaire puis remplacement : un plantage ne perd pas les réglages.
+    # Write to a temporary file, then replace: a crash never loses the settings.
     path = Path(path)
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -62,7 +62,7 @@ def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
 
 
 def center_on_screen(window) -> None:
-    """Place la fenêtre au centre de l'écran (Tk la mettrait en haut à gauche)."""
+    """Centers the window on the screen (Tk would put it in the top-left corner)."""
     window.update_idletasks()
     width, height = window.winfo_reqwidth(), window.winfo_reqheight()
     x = (window.winfo_screenwidth() - width) // 2
@@ -71,11 +71,11 @@ def center_on_screen(window) -> None:
 
 
 def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, object]]):
-    """Boîte modale à boutons ; renvoie la valeur du bouton cliqué (None si fermée)."""
+    """Modal dialog with buttons; returns the value of the clicked button (None if closed)."""
     dialog = tk.Toplevel(parent)
     dialog.title(title)
     dialog.resizable(False, False)
-    # Rattachée à une fenêtre cachée, Windows ne l'afficherait jamais (cas de la deuxième copie).
+    # Attached to a hidden window, Windows would never show it (case of the second copy).
     if parent.winfo_viewable():
         dialog.transient(parent)
     dialog.attributes("-topmost", True)
@@ -101,18 +101,18 @@ def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, obj
 
 
 def ask_already_running(parent) -> bool:
-    """Avertit d'un double lancement ; vrai si l'utilisateur veut afficher la copie déjà lancée."""
+    """Warns about a second launch; True if the user wants to show the running copy."""
     return choice_dialog(
         parent, TITLE,
-        f"{TITLE} est déjà lancé\n"
-        "(son icône se trouve près de l'horloge).\n\n"
-        "Voulez-vous afficher sa fenêtre ?",
-        [("Afficher celui déjà lancé", True), ("Annuler", False)]) is True
+        f"{TITLE} is already running\n"
+        "(its icon is in the notification area, next to the clock).\n\n"
+        "Do you want to show its window?",
+        [("Show the running one", True), ("Cancel", False)]) is True
 
 
 def is_login_start(argv: list[str]) -> bool:
-    """Vrai si l'applicatif a été lancé par Windows à l'ouverture de session."""
-    return autostart.STARTUP_FLAG in argv[1:]
+    """True if the application was started by Windows at sign-in."""
+    return any(flag in argv[1:] for flag in (autostart.STARTUP_FLAG, *autostart.LEGACY_FLAGS))
 
 
 class App:
@@ -120,7 +120,7 @@ class App:
         self.root = root
         self.cfg = load_config()
         self.results: queue.Queue = queue.Queue()
-        self.commands: queue.Queue = queue.Queue()  # ordres venant de l'icône (autre thread)
+        self.commands: queue.Queue = queue.Queue()  # orders coming from the tray icon (other thread)
         self.watcher: FolderWatcher | None = None
         self._scheduled: dict[str, str] = {}
         self.tray = TrayIcon(on_show=lambda: self.commands.put("show"),
@@ -139,35 +139,37 @@ class App:
         self.sub_var = tk.StringVar(value=self.cfg["subfolder"] or ROOT_LABEL)
         self.existing_var = tk.BooleanVar(value=self.cfg["process_existing"])
 
-        self.watch_entry, self.watch_btn = self._folder_row(frame, 0, "Dossier surveillé :", self.watch_var)
-        self.root_entry, self.root_btn = self._folder_row(frame, 1, "Dossier des workflows :", self.root_var)
+        self.watch_entry, self.watch_btn = self._folder_row(frame, 0, "Watched folder:", self.watch_var)
+        self.root_entry, self.root_btn = self._folder_row(frame, 1, "Workflows folder:", self.root_var)
 
-        ttk.Label(frame, text="Sous-dossier :").grid(row=2, column=0, sticky="w", pady=3)
+        ttk.Label(frame, text="Subfolder:").grid(row=2, column=0, sticky="w", pady=3)
         self.sub_combo = ttk.Combobox(frame, textvariable=self.sub_var, state="readonly",
                                       postcommand=self._refresh_subfolders)
         self.sub_combo.grid(row=2, column=1, sticky="ew", pady=3)
-        ttk.Button(frame, text="Nouveau…", command=self._new_subfolder).grid(row=2, column=2, padx=(5, 0))
+        ttk.Button(frame, text="New…", command=self._new_subfolder).grid(row=2, column=2, padx=(5, 0))
 
-        ttk.Checkbutton(frame, text="Traiter aussi les fichiers déjà présents au démarrage",
+        ttk.Checkbutton(frame, text="Also process files already present when starting",
                         variable=self.existing_var).grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
         try:
             enabled = autostart.is_enabled()
+            if enabled:
+                autostart.enable()  # rewrites the Run entry with the current command (e.g. after an update)
         except OSError:
             enabled = False
         self.autostart_var = tk.BooleanVar(value=enabled)
-        ttk.Checkbutton(frame, text="Lancer à l'ouverture de session Windows (réduit, surveillance démarrée)",
+        ttk.Checkbutton(frame, text="Start at Windows sign-in (minimized, watching)",
                         variable=self.autostart_var).grid(row=4, column=0, columnspan=3, sticky="w", pady=3)
         self.autostart_var.trace_add("write", lambda *_: self._apply_autostart())
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=6)
         buttons.columnconfigure(0, weight=1)
-        self.toggle_btn = ttk.Button(buttons, text="Démarrer", command=self._toggle)
+        self.toggle_btn = ttk.Button(buttons, text="Start", command=self._toggle)
         self.toggle_btn.grid(row=0, column=0, sticky="ew")
-        self.retry_btn = ttk.Button(buttons, text="Réessayer les erreurs", command=self._retry,
+        self.retry_btn = ttk.Button(buttons, text="Retry errors", command=self._retry,
                                     state="disabled")
         self.retry_btn.grid(row=0, column=1, padx=(5, 0))
-        self.shortcut_btn = ttk.Button(buttons, text="Créer le raccourci bureau",
+        self.shortcut_btn = ttk.Button(buttons, text="Create desktop shortcut",
                                        command=self._create_shortcut)
         self.shortcut_btn.grid(row=0, column=2, padx=(5, 0))
 
@@ -194,10 +196,10 @@ class App:
         elif not self.cfg["desktop_shortcut_asked"] and not self._shortcut_exists():
             self._schedule(300, self._offer_shortcut)
 
-    # --- Construction ---------------------------------------------------------
+    # --- Building -------------------------------------------------------------
 
     def _set_window_icon(self) -> list:
-        """Icône de la barre de titre et de la barre des tâches (les images doivent rester référencées)."""
+        """Title bar and taskbar icon (the images must stay referenced)."""
         images = [logo.icon_image(size) for size in (64, 32, 16)]
         if any(img is None for img in images):
             return []
@@ -206,7 +208,7 @@ class App:
         return photos
 
     def _build_banner(self):
-        """Bandeau du logo en haut de la fenêtre ; absent si le fichier du logo manque."""
+        """Logo banner at the top of the window; absent if the logo file is missing."""
         img = logo.banner_image(420)
         if img is None:
             return None
@@ -228,11 +230,11 @@ class App:
                 var.set(str(Path(chosen)))
                 self._refresh_subfolders()
 
-        button = ttk.Button(frame, text="Parcourir…", command=browse)
+        button = ttk.Button(frame, text="Browse…", command=browse)
         button.grid(row=row, column=2, padx=(5, 0))
         return entry, button
 
-    # --- Sous-dossiers --------------------------------------------------------
+    # --- Subfolders -----------------------------------------------------------
 
     def _refresh_subfolders(self) -> None:
         root = Path(self.root_var.get())
@@ -244,57 +246,57 @@ class App:
         self.sub_combo["values"] = [ROOT_LABEL, *names]
 
     def _new_subfolder(self) -> None:
-        name = simpledialog.askstring("Nouveau sous-dossier", "Nom du sous-dossier :", parent=self.root)
+        name = simpledialog.askstring("New subfolder", "Subfolder name:", parent=self.root)
         if name is None:
             return
         if not valid_subfolder_name(name):
             messagebox.showerror(
-                "Nom invalide",
-                "Le nom ne doit pas commencer par un point ni contenir \\ / : * ? \" < > |",
+                "Invalid name",
+                "The name must not start with a dot or contain \\ / : * ? \" < > |",
                 parent=self.root)
             return
         name = name.strip()
         try:
             (Path(self.root_var.get()) / name).mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            messagebox.showerror("Erreur", f"Impossible de créer le dossier :\n{e}", parent=self.root)
+            messagebox.showerror("Error", f"Cannot create the folder:\n{e}", parent=self.root)
             return
         self._refresh_subfolders()
         self.sub_var.set(name)
 
     def _dest(self) -> Path:
-        # Appelé depuis le thread de surveillance : ne lit que la config, jamais Tkinter.
+        # Called from the watcher thread: only reads the config, never Tkinter.
         cfg = self.cfg
         root = Path(cfg["workflows_root"])
         return root / cfg["subfolder"] if cfg["subfolder"] else root
 
-    # --- Surveillance ---------------------------------------------------------
+    # --- Watching -------------------------------------------------------------
 
     def _toggle(self) -> None:
         if self.watcher and self.watcher.running:
             self.watcher.stop()
             self._set_running(False)
-            self._write("Surveillance arrêtée.", "ignored")
+            self._write("Watching stopped.", "ignored")
             return
         watch_dir, root = Path(self.watch_var.get()), Path(self.root_var.get())
         if not watch_dir.is_dir():
-            self._write(f"Erreur : le dossier surveillé n'existe pas — {watch_dir}", "error")
+            self._write(f"Error: the watched folder does not exist - {watch_dir}", "error")
             return
         if not root.is_dir():
-            self._write(f"Erreur : le dossier des workflows n'existe pas — {root}", "error")
+            self._write(f"Error: the workflows folder does not exist - {root}", "error")
             return
         self.watcher = FolderWatcher(watch_dir, self._dest, self.results.put)
         try:
             self.watcher.start(process_existing=self.existing_var.get())
         except OSError as e:
-            self._write(f"Erreur : impossible de surveiller {watch_dir} — {e}", "error")
+            self._write(f"Error: cannot watch {watch_dir} - {e}", "error")
             return
         self._set_running(True)
-        self._write(f"Surveillance de {watch_dir} démarrée.", "ignored")
+        self._write(f"Watching {watch_dir}.", "ignored")
 
     def _retry(self) -> None:
         if self.watcher and self.watcher.running and self.watcher.failed_count:
-            self._write(f"Nouvelle tentative pour {self.watcher.failed_count} fichier(s)…", "ignored")
+            self._write(f"Retrying {self.watcher.failed_count} file(s)…", "ignored")
             self.watcher.retry_failed()
         self._update_retry()
 
@@ -306,11 +308,11 @@ class App:
         if self.watcher and self.watcher.running and not self.watcher.healthy:
             self.watcher.stop()
             self._set_running(False)
-            self._write(f"Erreur : surveillance interrompue, le dossier {self.watcher.watch_dir} "
-                        "est introuvable. Vérifiez-le puis cliquez sur Démarrer.", "error")
+            self._write(f"Error: watching interrupted, the folder {self.watcher.watch_dir} "
+                        "cannot be found. Check it, then click Start.", "error")
         self._schedule(HEALTH_CHECK_MS, self._check_health)
 
-    # --- Raccourci bureau -----------------------------------------------------
+    # --- Desktop shortcut -----------------------------------------------------
 
     def _shortcut_exists(self) -> bool:
         try:
@@ -325,25 +327,25 @@ class App:
         try:
             path = shortcut.create()
         except OSError as e:
-            self._write(f"Erreur : raccourci non créé — {e}", "error")
+            self._write(f"Error: shortcut not created - {e}", "error")
         else:
-            self._write(f"Raccourci créé sur le bureau : {path}", "ok")
+            self._write(f"Shortcut created on the desktop: {path}", "ok")
         self._update_shortcut_button()
 
     def _offer_shortcut(self) -> None:
-        """Premier lancement : propose le raccourci bureau, une seule fois quelle que soit la réponse."""
+        """First launch: offers the desktop shortcut, only once whatever the answer."""
         self.cfg["desktop_shortcut_asked"] = True
         self._save()
-        if choice_dialog(self.root, TITLE, "Créer un raccourci Deziporama sur le bureau ?",
-                         [("Oui, créer", True), ("Non merci", False)]) is True:
+        if choice_dialog(self.root, TITLE, f"Create a {TITLE} shortcut on the desktop?",
+                         [("Yes, create it", True), ("No thanks", False)]) is True:
             self._create_shortcut()
 
     def _set_running(self, running: bool) -> None:
         state = "disabled" if running else "normal"
         for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
             widget.configure(state=state)
-        self.toggle_btn.configure(text="Arrêter" if running else "Démarrer")
-        self.tray.set_tooltip(f"{TITLE} — surveillance {'active' if running else 'arrêtée'}")
+        self.toggle_btn.configure(text="Stop" if running else "Start")
+        self.tray.set_tooltip(f"{TITLE} — watching: {'active' if running else 'stopped'}")
         self._update_retry()
 
     def _drain(self) -> None:
@@ -364,18 +366,18 @@ class App:
                 break
             name = result.source.name
             if result.status == "imported":
-                self._write(f"Importé : {name} → {result.target}", "ok")
+                self._write(f"Imported: {name} → {result.target}", "ok")
                 if result.message:
-                    self._write(f"Attention : {result.message}", "warn")
+                    self._write(f"Warning: {result.message}", "warn")
             elif result.status == "ignored":
-                self._write(f"Ignoré (pas un workflow) : {name}", "ignored")
+                self._write(f"Ignored (not a workflow): {name}", "ignored")
             else:
-                self._write(f"Erreur : {name} — {result.message} "
-                            "(corrigez puis cliquez sur « Réessayer les erreurs »)", "error")
+                self._write(f"Error: {name} - {result.message} "
+                            "(fix it, then click \"Retry errors\")", "error")
         self._update_retry()
         self._schedule(200, self._drain)
 
-    # --- Divers ---------------------------------------------------------------
+    # --- Misc -----------------------------------------------------------------
 
     def _write(self, message: str, tag: str) -> None:
         self.log.configure(state="normal")
@@ -395,21 +397,21 @@ class App:
         try:
             save_config(self.cfg)
         except OSError as e:
-            self._write(f"Erreur : réglages non sauvegardés — {e}", "error")
+            self._write(f"Error: settings not saved - {e}", "error")
 
     def _apply_autostart(self) -> None:
         wanted = self.autostart_var.get()
         try:
             autostart.enable() if wanted else autostart.disable()
         except OSError as e:
-            self._write(f"Erreur : lancement à l'ouverture de session non modifié — {e}", "error")
+            self._write(f"Error: start at sign-in not changed - {e}", "error")
             if self.autostart_var.get() != (not wanted):
                 self.autostart_var.set(not wanted)
 
-    # --- Zone de notification et fermeture ------------------------------------
+    # --- Notification area and closing ----------------------------------------
 
     def _on_unmap(self, event) -> None:
-        # Bouton « Réduire » : la fenêtre quitte la barre des tâches pour la zone de notification.
+        # Minimize button: the window leaves the taskbar for the notification area.
         if event.widget is self.root and self.root.state() == "iconic":
             self._hide_to_tray()
 
@@ -418,22 +420,22 @@ class App:
         self.tray.show()
 
     def _show_window(self) -> None:
-        self._update_shortcut_button()  # le raccourci a pu être créé ou supprimé entre-temps
+        self._update_shortcut_button()  # the shortcut may have been created or deleted meanwhile
         self.tray.hide()
         self.root.deiconify()
         self.root.lift()
-        # Rappelée par une autre copie, Windows laisserait la fenêtre derrière les autres.
+        # When recalled by another copy, Windows would leave the window behind the others.
         self.root.attributes("-topmost", True)
         self.root.after(300, lambda: self.root.attributes("-topmost", False))
         self.root.focus_force()
 
     def _ask_close(self) -> str | None:
-        """Boîte « Réduire / Quitter / Annuler ». Renvoie "minimize", "quit" ou None."""
+        """"Minimize / Quit / Cancel" dialog. Returns "minimize", "quit" or None."""
         return choice_dialog(
-            self.root, "Fermer",
-            "Voulez-vous réduire l'applicatif près de l'horloge\n"
-            "(la surveillance continue) ou le quitter ?",
-            [("Réduire près de l'horloge", "minimize"), ("Quitter", "quit"), ("Annuler", None)])
+            self.root, "Close",
+            f"Do you want to minimize {TITLE} to the notification area\n"
+            "(watching continues) or quit it?",
+            [("Minimize to tray", "minimize"), ("Quit", "quit"), ("Cancel", None)])
 
     def _close(self) -> None:
         choice = self._ask_close()
@@ -443,7 +445,7 @@ class App:
             self._quit()
 
     def _schedule(self, ms: int, callback) -> None:
-        """root.after mémorisé par fonction, pour pouvoir tout annuler en quittant."""
+        """root.after remembered per function, so that everything can be cancelled on quit."""
         self._scheduled[callback.__name__] = self.root.after(ms, callback)
 
     def _quit(self) -> None:
@@ -460,7 +462,7 @@ def main() -> None:
     at_login = is_login_start(sys.argv)
     instance = single_instance.SingleInstance()
     if not instance.acquire():
-        # Déjà lancé : au démarrage de session on se retire sans bruit, sinon on demande.
+        # Already running: at sign-in, leave silently; otherwise ask.
         if not at_login:
             root = tk.Tk()
             root.withdraw()

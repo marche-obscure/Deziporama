@@ -1,4 +1,4 @@
-"""Logo Deziporama : icône (recadrage « DEZ » + curseur) et bandeau de la fenêtre."""
+"""Deziporama logo: icon ("DEZ" + slider crop) and window banner."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -6,10 +6,10 @@ from pathlib import Path
 from PIL import Image
 
 LOGO_PATH = Path(__file__).with_name("assets") / "deziporama.webp"
-# Zones du logo d'origine (2000 × 2000 px).
-ICON_BOX = (60, 660, 760, 1360)       # « DEZ » avec le curseur vert : lisible en 16-32 px
-BANNER_BOX = (40, 560, 1960, 1320)    # le mot entier et la fermeture éclair
-BANNER_BACKGROUND = "#1c1b20"         # fond sombre du logo, pour prolonger le bandeau
+# Areas of the original logo (2000 x 2000 px).
+ICON_BOX = (60, 660, 760, 1360)       # "DEZ" with the green slider: readable at 16-32 px
+BANNER_BOX = (40, 560, 1960, 1320)    # the whole word and the zipper
+BANNER_BACKGROUND = "#1c1b20"         # dark logo background, to extend the banner
 
 
 @lru_cache(maxsize=4)
@@ -38,7 +38,7 @@ def banner_image(width: int = 420) -> Image.Image | None:
 
 
 def write_ico(path: Path) -> bool:
-    """Écrit l'icône au format .ico (raccourci bureau). Faux si le logo est absent."""
+    """Writes the icon as .ico (desktop shortcut). False if the logo is missing."""
     img = icon_image(256)
     if img is None:
         return False

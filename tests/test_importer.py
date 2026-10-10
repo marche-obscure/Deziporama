@@ -16,7 +16,7 @@ def make_zip(path, entries):
     return path
 
 
-# --- Détection ---------------------------------------------------------------
+# --- Detection ---------------------------------------------------------------
 
 def test_ui_format_detected():
     assert is_workflow_data(UI)
@@ -34,7 +34,7 @@ def test_empty_dict_ignored():
     assert not is_workflow_data({})
 
 
-@pytest.mark.parametrize("content", ["[1, 2]", "42", "", "pas du json"])
+@pytest.mark.parametrize("content", ["[1, 2]", "42", "", "not json"])
 def test_non_object_json_ignored(tmp_path, content):
     f = tmp_path / "x.json"
     f.write_text(content, encoding="utf-8")
@@ -59,7 +59,7 @@ def test_zip_without_workflow(tmp_path):
 
 def test_corrupt_zip(tmp_path):
     z = tmp_path / "p.zip"
-    z.write_bytes(b"pas un zip")
+    z.write_bytes(b"not a zip")
     assert not is_workflow_zip(z)
 
 
@@ -154,14 +154,14 @@ def test_zip_slip_rejected(tmp_path, evil):
 
 def test_corrupt_zip_ignored(tmp_path):
     src = tmp_path / "pack.zip"
-    src.write_bytes(b"pas un zip")
+    src.write_bytes(b"not a zip")
     r = import_file(src, tmp_path / "out", trash=lambda p: None)
     assert r.status == "ignored"
     assert src.exists()
 
 
 def test_unwritable_destination_is_error(tmp_path):
-    blocker = tmp_path / "fichier"
+    blocker = tmp_path / "a-file"
     blocker.write_text("x", encoding="utf-8")
     src = write_wf(tmp_path / "wf.json")
     r = import_file(src, blocker / "sous", trash=lambda p: None)
@@ -173,15 +173,15 @@ def test_trash_failure_still_reported_imported(tmp_path):
     src = make_zip(tmp_path / "pack.zip", {"wf.json": json.dumps(UI)})
 
     def broken_trash(path):
-        raise OSError("fichier verrouillé")
+        raise OSError("file locked")
 
     r = import_file(src, tmp_path / "out", trash=broken_trash)
     assert r.status == "imported"
     assert r.target == tmp_path / "out" / "pack"
-    assert "Corbeille" in r.message
+    assert "Recycle Bin" in r.message
 
 
-# --- Robustesse (points mineurs de la relecture) ------------------------------
+# --- Robustness (minor review findings) ---------------------------------------
 
 import importer  # noqa: E402
 
@@ -193,7 +193,7 @@ def test_interrupted_json_copy_leaves_nothing(tmp_path, monkeypatch):
     def broken_copy(a, b, *args, **kwargs):
         with open(b, "wb") as fh:
             fh.write(b'{"nodes"')  # copie partielle
-        raise OSError("disque débranché")
+        raise OSError("drive unplugged")
 
     monkeypatch.setattr(importer.shutil, "copyfile", broken_copy)
     r = import_file(src, dest, trash=lambda p: None)
@@ -208,7 +208,7 @@ def test_json_source_undeletable_still_imported(tmp_path, monkeypatch):
 
     def locked_unlink(self, *a, **k):
         if self == src:
-            raise PermissionError("verrouillé")
+            raise PermissionError("locked")
         return real_unlink(self, *a, **k)
 
     monkeypatch.setattr(importer.Path, "unlink", locked_unlink)
@@ -227,8 +227,8 @@ def test_very_deep_json_ignored(tmp_path):
 
 def test_encrypted_zip_ignored(tmp_path):
     src = make_zip(tmp_path / "secret.zip", {"wf.json": json.dumps(UI)})
-    # zipfile ne sait pas écrire de zip chiffré : on positionne le bit « chiffré »
-    # dans l'en-tête local et dans le répertoire central ; la lecture exige alors un mot de passe.
+    # zipfile cannot write encrypted zips: set the "encrypted" flag bit
+    # in the local header and the central directory; reading then requires a password.
     raw = bytearray(src.read_bytes())
     raw[raw.find(b"PK\x03\x04") + 6] |= 0x1
     raw[raw.find(b"PK\x01\x02") + 8] |= 0x1
@@ -256,12 +256,12 @@ def test_zip_too_big_when_extracted_is_error(tmp_path, monkeypatch):
     trashed = []
     r = import_file(src, dest, trash=trashed.append)
     assert r.status == "error"
-    assert "volumineuse" in r.message
+    assert "too large" in r.message
     assert trashed == [] and src.exists()
     assert leftovers(dest) == []
 
 
-# --- Zip contenant un seul dossier à la racine --------------------------------
+# --- Zip holding a single folder at its root ----------------------------------
 
 def test_single_root_folder_is_flattened(tmp_path):
     src = make_zip(tmp_path / "Ep33 Workflows.zip", {
@@ -278,12 +278,12 @@ def test_single_root_folder_is_flattened(tmp_path):
 
 
 def test_single_folder_plus_root_file_not_flattened(tmp_path):
-    src = make_zip(tmp_path / "pack.zip", {"Dossier/wf.json": json.dumps(UI), "lisez-moi.txt": "x"})
+    src = make_zip(tmp_path / "pack.zip", {"Folder/wf.json": json.dumps(UI), "readme.txt": "x"})
     dest = tmp_path / "out"
     r = import_file(src, dest, trash=lambda p: None)
     assert r.target == dest / "pack"
-    assert (dest / "pack" / "Dossier" / "wf.json").exists()
-    assert (dest / "pack" / "lisez-moi.txt").exists()
+    assert (dest / "pack" / "Folder" / "wf.json").exists()
+    assert (dest / "pack" / "readme.txt").exists()
 
 
 def test_two_root_folders_not_flattened(tmp_path):
@@ -319,7 +319,7 @@ def test_flattened_folder_name_collision(tmp_path):
 
 
 def test_single_root_folder_with_name_sanitized_by_windows(tmp_path):
-    # Windows interdit l'espace final : l'extraction crée « EP33 », pas « EP33 ».
+    # Windows forbids a trailing space: extraction creates "EP33", not "EP33 ".
     src = make_zip(tmp_path / "pack.zip", {"EP33 /wf.json": json.dumps(UI)})
     dest = tmp_path / "out"
     r = import_file(src, dest, trash=lambda p: None)
@@ -328,7 +328,7 @@ def test_single_root_folder_with_name_sanitized_by_windows(tmp_path):
     assert (dest / "EP33" / "wf.json").exists()
 
 
-# --- Casse du dossier créé par le dézippage ------------------------------------
+# --- Case of the folder created by extraction ----------------------------------
 
 from importer import capitalize_words  # noqa: E402
 
@@ -337,9 +337,9 @@ from importer import capitalize_words  # noqa: E402
     ("EP33 Workflows", "Ep33 Workflows"),
     ("FLUX dev PACK", "Flux Dev Pack"),
     ("my_flux-pack", "My_Flux-Pack"),
-    ("l'image", "L'image"),
+    ("o'neil pack", "O'neil Pack"),
     ("33 WORKFLOWS", "33 Workflows"),
-    ("Été  ÉCOLE", "Été  École"),
+    ("ÅSA  ØRE", "Åsa  Øre"),
 ])
 def test_capitalize_words(raw, expected):
     assert capitalize_words(raw) == expected

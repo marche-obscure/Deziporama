@@ -1,4 +1,4 @@
-"""Lancement de l'applicatif à l'ouverture de session Windows (clé Run de l'utilisateur)."""
+"""Start the application at Windows sign-in (the user's Run registry key)."""
 
 import sys
 import winreg
@@ -7,11 +7,12 @@ from pathlib import Path
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "ImporteurWorkflowsComfyUI"
 APP_PATH = Path(__file__).with_name("app.py")
-STARTUP_FLAG = "--demarrage"
+STARTUP_FLAG = "--at-login"
+LEGACY_FLAGS = ("--demarrage",)  # flag written in the Run key by older versions
 
 
 def startup_command() -> str:
-    """Commande lancée par Windows : pythonw (sans console) + app.py + drapeau de démarrage."""
+    """Command run by Windows: pythonw (no console) + app.py + startup flag."""
     exe = Path(sys.executable)
     pythonw = exe.with_name("pythonw.exe")
     return f'"{pythonw if pythonw.exists() else exe}" "{APP_PATH}" {STARTUP_FLAG}'

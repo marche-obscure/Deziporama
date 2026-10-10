@@ -155,7 +155,7 @@ def test_stop_does_not_wait_for_queued_files(tmp_path, monkeypatch):
 
 
 def test_empty_placeholder_not_reported(env):
-    """Firefox crée d'abord un fichier vide, puis renomme le .part dessus."""
+    """Firefox first creates an empty file, then renames the .part file onto it."""
     w, watch, dest, results = env
     w.start()
     (watch / "wf.json").write_bytes(b"")
@@ -172,7 +172,7 @@ def test_failed_file_can_be_retried(tmp_path):
     watch.mkdir()
     blocker = tmp_path / "bloque"
     blocker.write_text("x", encoding="utf-8")
-    current = {"dest": blocker / "sous"}  # destination impossible à créer
+    current = {"dest": blocker / "sous"}  # destination that cannot be created
     results = queue.Queue()
     w = FolderWatcher(watch, lambda: current["dest"], results.put)
     try:
@@ -180,7 +180,7 @@ def test_failed_file_can_be_retried(tmp_path):
         write_wf(watch / "wf.json")
         assert wait_result(results).status == "error"
         assert w.failed_count == 1
-        current["dest"] = tmp_path / "ok"  # le disque est revenu
+        current["dest"] = tmp_path / "ok"  # the drive is back
         w.retry_failed()
         assert wait_result(results).status == "imported"
         assert (tmp_path / "ok" / "wf.json").exists()
@@ -193,7 +193,7 @@ def test_healthy_false_when_watch_dir_disappears(env):
     w, watch, dest, results = env
     w.start()
     assert w.healthy
-    w.stop()  # libère le dossier sous Windows avant suppression
+    w.stop()  # releases the folder on Windows before deletion
     w.start()
     w._observer.stop()
     w._observer.join()

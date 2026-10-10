@@ -1,4 +1,4 @@
-"""Surveillance du dossier de téléchargement et import des workflows qui y arrivent."""
+"""Watches the download folder and imports the workflows arriving there."""
 
 import queue
 import threading
@@ -23,7 +23,7 @@ def is_candidate(path: Path) -> bool:
 def wait_until_ready(path: Path, timeout: float | None = None,
                      interval: float | None = None,
                      stop: threading.Event | None = None) -> bool:
-    """Attend que la taille du fichier soit stable sur 2 contrôles et qu'il soit lisible."""
+    """Waits until the file size is stable over 2 checks and the file is readable."""
     timeout = READY_TIMEOUT if timeout is None else timeout
     interval = READY_INTERVAL if interval is None else interval
     deadline = time.monotonic() + timeout
@@ -81,7 +81,7 @@ class FolderWatcher:
 
     @property
     def healthy(self) -> bool:
-        """Faux si la surveillance s'est interrompue (dossier disparu, observateur arrêté)."""
+        """False if watching stopped on its own (folder gone, observer stopped)."""
         return (self._observer is not None and self._observer.is_alive()
                 and self.watch_dir.is_dir())
 
@@ -91,7 +91,7 @@ class FolderWatcher:
             return len(self._failed)
 
     def retry_failed(self) -> None:
-        """Remet en file les fichiers dont l'import a échoué (ex. disque revenu)."""
+        """Queues again the files whose import failed (e.g. drive back)."""
         with self._lock:
             paths, self._failed = sorted(self._failed), set()
         for path in paths:
@@ -103,8 +103,8 @@ class FolderWatcher:
             return
         self._todo = queue.Queue()
         self._stop = threading.Event()
-        # L'observateur démarre avant le parcours des fichiers existants : un fichier arrivé
-        # entre les deux est vu au moins une fois (les doublons sont écartés par _process).
+        # The observer starts before existing files are listed: a file arriving in between
+        # is seen at least once (duplicates are discarded by _process).
         observer = Observer()
         observer.schedule(_Handler(self._todo), str(self.watch_dir), recursive=False)
         observer.start()
@@ -122,7 +122,7 @@ class FolderWatcher:
             self._observer.join()
             self._observer = None
         if self._thread is not None:
-            # On abandonne les fichiers en attente ; seul le fichier en cours se termine.
+            # Pending files are dropped; only the file in progress finishes.
             self._stop.set()
             while True:
                 try:
@@ -147,11 +147,11 @@ class FolderWatcher:
                 return
             try:
                 self._process(path, stop)
-            except Exception as e:  # noqa: BLE001 — le thread ne doit jamais mourir
+            except Exception as e:  # noqa: BLE001 - the thread must never die
                 self._on_result(ImportResult("error", path, None, str(e)))
 
     def _process(self, path: Path, stop: threading.Event) -> None:
-        # Fichier déjà traité (déplacé) ou événement en double : on ignore.
+        # File already handled (moved) or duplicate event: ignore.
         signature = self._signature(path)
         if signature is None or self._seen.get(path) == signature:
             return
@@ -159,9 +159,9 @@ class FolderWatcher:
             if stop.is_set():
                 return
             result = ImportResult("error", path, None,
-                                  f"téléchargement non terminé après {READY_TIMEOUT:.0f} s")
+                                  f"download not finished after {READY_TIMEOUT:.0f} s")
         elif path.stat().st_size == 0:
-            # Fichier vide réservé par le navigateur (Firefox) : le vrai contenu arrivera par renommage.
+            # Empty placeholder created by the browser (Firefox): the real content arrives by rename.
             return
         else:
             result = import_file(path, Path(self._get_dest()))

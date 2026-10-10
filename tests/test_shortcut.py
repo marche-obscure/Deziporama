@@ -6,7 +6,7 @@ import shortcut
 
 
 def read_lnk(path):
-    """Lit un raccourci .lnk via Windows (cible, arguments, dossier, icône)."""
+    """Reads a .lnk shortcut through Windows (target, arguments, folder, icon)."""
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK); "
               "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation")
     out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -37,4 +37,4 @@ def test_create_real_shortcut(tmp_path):
 
 def test_create_fails_cleanly(tmp_path):
     with pytest.raises(OSError):
-        shortcut.create(tmp_path / "dossier-inexistant")
+        shortcut.create(tmp_path / "missing-folder")

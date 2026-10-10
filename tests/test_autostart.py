@@ -9,7 +9,7 @@ TEST_KEY = r"Software\ImporteurWorkflowsComfyUI-Tests\Run"
 
 @pytest.fixture
 def key():
-    """Clé de registre de test (jamais la vraie clé Run de Windows)."""
+    """Test registry key (never the real Windows Run key)."""
     yield TEST_KEY
     for path in (TEST_KEY, r"Software\ImporteurWorkflowsComfyUI-Tests"):
         try:

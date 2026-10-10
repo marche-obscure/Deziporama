@@ -38,7 +38,7 @@ def test_save_is_atomic(tmp_path, monkeypatch):
     save_config(dict(DEFAULTS, subfolder="Ancien"), p)
 
     def crash(*a, **k):
-        raise OSError("plantage pendant l'écriture")
+        raise OSError("crash while writing")
 
     monkeypatch.setattr(app.os, "replace", crash)
     try:
@@ -51,7 +51,7 @@ def test_save_is_atomic(tmp_path, monkeypatch):
 
 def test_valid_subfolder_name():
     from app import valid_subfolder_name
-    for ok in ["Salon", "Mes workflows", "été-2026"]:
+    for ok in ["Salon", "Mes workflows", "Smørrebrød-2026"]:
         assert valid_subfolder_name(ok), ok
     for bad in ["", "  ", ".", "..", r"..\x", "a/b", r"a\b", r"C:\x", "C:", "a:b", "x?", "<x>", "a|b", '"x"', "x*", ".cache"]:
         assert not valid_subfolder_name(bad), bad

@@ -10,14 +10,14 @@ def test_menu_actions_call_callbacks():
     calls = []
     t = tray.TrayIcon(on_show=lambda: calls.append("show"), on_quit=lambda: calls.append("quit"))
     items = {item.text: item for item in t.icon.menu.items}
-    assert set(items) == {"Afficher", "Quitter"}
-    assert items["Afficher"].default  # clic sur l'icône = Afficher
-    items["Afficher"](t.icon)
-    items["Quitter"](t.icon)
+    assert set(items) == {"Show", "Quit"}
+    assert items["Show"].default  # clicking the icon = Show
+    items["Show"](t.icon)
+    items["Quit"](t.icon)
     assert calls == ["show", "quit"]
 
 
 def test_tooltip():
     t = tray.TrayIcon(on_show=lambda: None, on_quit=lambda: None)
-    t.set_tooltip("surveillance active")
-    assert t.icon.title == "surveillance active"
+    t.set_tooltip("watching")
+    assert t.icon.title == "watching"

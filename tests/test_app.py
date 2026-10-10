@@ -8,7 +8,7 @@ import app
 
 @pytest.fixture(scope="module")
 def tk_root():
-    # Un seul interpréteur Tk par module : en créer plusieurs échoue parfois sous Windows.
+    # One Tk interpreter per module: creating several sometimes fails on Windows.
     root = tk.Tk()
     root.withdraw()
     yield root
@@ -36,7 +36,8 @@ class FakeTray:
 
 
 class FakeAutostart:
-    STARTUP_FLAG = "--demarrage"
+    STARTUP_FLAG = "--at-login"
+    LEGACY_FLAGS = ("--demarrage",)
 
     def __init__(self, enabled=False, fail=False):
         self.enabled, self.fail, self.calls = enabled, fail, []
@@ -46,7 +47,7 @@ class FakeAutostart:
 
     def enable(self):
         if self.fail:
-            raise OSError("accès refusé")
+            raise OSError("access denied")
         self.calls.append("enable")
         self.enabled = True
 
@@ -56,7 +57,7 @@ class FakeAutostart:
 
 
 class FakeShortcut:
-    """Par défaut le raccourci existe : aucune question ne s'ouvre dans les autres tests."""
+    """By default the shortcut exists, so no question pops up in the other tests."""
 
     def __init__(self):
         self.present, self.fail, self.created = True, False, 0
@@ -66,10 +67,10 @@ class FakeShortcut:
 
     def create(self):
         if self.fail:
-            raise OSError("bureau inaccessible")
+            raise OSError("desktop unreachable")
         self.created += 1
         self.present = True
-        return "C:/Bureau/Deziporama.lnk"
+        return "C:/Desktop/Deziporama.lnk"
 
 
 @pytest.fixture
@@ -102,11 +103,11 @@ def window(tk_root, fakes, tmp_path):
     a.root_var.set(str(tmp_path))
     yield a
     if top.winfo_exists():
-        a._quit()  # arrête la surveillance et annule les tâches programmées
+        a._quit()  # stops watching and cancels scheduled callbacks
 
 
 def test_dest_readable_from_worker_thread(window, tmp_path):
-    """Le thread de surveillance lit la destination : il ne doit pas toucher Tkinter."""
+    """The watcher thread reads the destination: it must never touch Tkinter."""
     window.sub_var.set("Salon")
     out = {}
 
@@ -128,7 +129,7 @@ def test_root_label_means_workflows_root(window, tmp_path):
     assert window._dest() == tmp_path
 
 
-# --- Lancement à l'ouverture de session ----------------------------------------
+# --- Start at Windows sign-in --------------------------------------------------
 
 def test_autostart_checkbox_reflects_registry(tk_root, fakes):
     fakes.enabled = True
@@ -149,7 +150,7 @@ def test_autostart_failure_reverts_checkbox(window, fakes):
     fakes.fail = True
     window.autostart_var.set(True)
     assert window.autostart_var.get() is False
-    assert "accès refusé" in window.log.get("1.0", "end")
+    assert "access denied" in window.log.get("1.0", "end")
 
 
 def test_started_at_login_hides_and_starts_watching(tk_root, fakes, tmp_path, monkeypatch):
@@ -175,7 +176,7 @@ def test_is_login_start():
     assert not app.is_login_start(["app.py"])
 
 
-# --- Réduction près de l'horloge -------------------------------------------------
+# --- Minimize to the notification area -------------------------------------------
 
 def test_minimize_hides_window_and_shows_tray(window):
     window.root.update()
@@ -187,7 +188,7 @@ def test_minimize_hides_window_and_shows_tray(window):
 
 def test_tray_show_command_restores_window(window):
     window._hide_to_tray()
-    t = threading.Thread(target=window.tray.on_show)  # appelé depuis le thread de pystray
+    t = threading.Thread(target=window.tray.on_show)  # called from the pystray thread
     t.start()
     t.join()
     window._drain()
@@ -228,7 +229,7 @@ def test_close_then_cancel(window, monkeypatch):
 
 
 def test_close_dialog_buttons(window):
-    """La boîte de dialogue propose les trois choix et renvoie celui cliqué."""
+    """The dialog offers the three choices and returns the one clicked."""
     def descendants(widget):
         for child in widget.winfo_children():
             yield child
@@ -243,18 +244,18 @@ def test_close_dialog_buttons(window):
                 clicked.append(label)
                 b.invoke()
                 return
-        for d in dialogs:  # bouton introuvable : on ferme pour faire échouer le test sans bloquer
+        for d in dialogs:  # button not found: close the dialog so the test fails instead of hanging
             d.destroy()
 
-    for label, expected in [("Réduire près de l'horloge", "minimize"), ("Quitter", "quit"), ("Annuler", "")]:
+    for label, expected in [("Minimize to tray", "minimize"), ("Quit", "quit"), ("Cancel", "")]:
         window.root.after(300, lambda l=label: click(l))
         assert (window._ask_close() or "") == expected
-    assert clicked == ["Réduire près de l'horloge", "Quitter", "Annuler"]
+    assert clicked == ["Minimize to tray", "Quit", "Cancel"]
 
 
 def test_quit_cancels_scheduled_callbacks(window):
     mine = set(window._scheduled.values())
-    assert len(mine) == 2  # _drain et _check_health sont programmés
+    assert len(mine) == 2  # _drain and _check_health are scheduled
     assert mine <= set(window.root.tk.call("after", "info"))
     window._quit()
     assert not set(window.root.tk.call("after", "info")) & mine
@@ -273,12 +274,12 @@ def _click_in_dialog(parent, label):
         if b.winfo_class() == "TButton" and b.cget("text") == label:
             b.invoke()
             return True
-    for d in dialogs:  # bouton introuvable : on ferme pour faire échouer le test sans bloquer
+    for d in dialogs:  # button not found: close the dialog so the test fails instead of hanging
         d.destroy()
     return False
 
 
-@pytest.mark.parametrize("label, expected", [("Afficher celui déjà lancé", True), ("Annuler", False)])
+@pytest.mark.parametrize("label, expected", [("Show the running one", True), ("Cancel", False)])
 def test_already_running_dialog(tk_root, label, expected):
     top = tk.Toplevel(tk_root)
     try:
@@ -291,7 +292,7 @@ def test_already_running_dialog(tk_root, label, expected):
 
 
 def test_already_running_dialog_visible_with_hidden_parent(tk_root):
-    """Deuxième copie : la fenêtre principale est cachée, l'avertissement doit rester visible."""
+    """Second copy: the main window is hidden, the warning must still be visible."""
     top = tk.Toplevel(tk_root)
     top.withdraw()
     seen = []
@@ -299,7 +300,7 @@ def test_already_running_dialog_visible_with_hidden_parent(tk_root):
     def check_then_click():
         dialogs = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)]
         seen.append(bool(dialogs) and bool(dialogs[0].winfo_viewable()))
-        _click_in_dialog(top, "Annuler")
+        _click_in_dialog(top, "Cancel")
 
     try:
         top.after(500, check_then_click)
@@ -322,7 +323,7 @@ def test_dialogs_centered_on_screen(tk_root, hidden_parent):
         cx = d.winfo_rootx() + d.winfo_width() // 2
         cy = d.winfo_rooty() + d.winfo_height() // 2
         measured.append((cx, cy, d.winfo_screenwidth() // 2, d.winfo_screenheight() // 2))
-        _click_in_dialog(top, "Annuler")
+        _click_in_dialog(top, "Cancel")
 
     try:
         top.after(500, measure_then_click)
@@ -336,7 +337,7 @@ def test_dialogs_centered_on_screen(tk_root, hidden_parent):
 
 def test_application_name(window):
     assert window.root.title() == "Deziporama"
-    assert window.tray.tooltip.startswith("Deziporama — surveillance")
+    assert window.tray.tooltip.startswith("Deziporama — watching")
 
 
 def test_already_running_message_uses_name(tk_root):
@@ -351,12 +352,12 @@ def test_already_running_message_uses_name(tk_root):
         dialogs = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)]
         texts.extend(w.cget("text") for d in dialogs for w in descendants(d) if w.winfo_class() == "TLabel")
         texts.extend(d.title() for d in dialogs)
-        _click_in_dialog(top, "Annuler")
+        _click_in_dialog(top, "Cancel")
 
     try:
         top.after(300, read_then_cancel)
         app.ask_already_running(top)
-        assert any(t.startswith("Deziporama est déjà lancé") for t in texts), texts
+        assert any(t.startswith("Deziporama is already running") for t in texts), texts
         assert "Deziporama" in texts
     finally:
         top.destroy()
@@ -367,7 +368,7 @@ def test_already_running_message_uses_name(tk_root):
 def test_window_shows_banner_and_icon(window):
     assert window.banner_label is not None
     assert window.banner_label.cget("image")
-    assert window.icon_images  # icône de la barre de titre / barre des tâches
+    assert window.icon_images  # title bar / taskbar icon
 
 
 def test_window_without_logo_still_opens(tk_root, fakes, tmp_path, monkeypatch):
@@ -382,7 +383,7 @@ def test_window_without_logo_still_opens(tk_root, fakes, tmp_path, monkeypatch):
         a._quit()
 
 
-# --- Raccourci bureau -------------------------------------------------------------
+# --- Desktop shortcut -------------------------------------------------------------
 
 def pump(root, seconds=0.6):
     import time
@@ -394,7 +395,7 @@ def pump(root, seconds=0.6):
 
 @pytest.fixture
 def fresh_window(tk_root, fakes, fake_shortcut, monkeypatch):
-    """Fabrique une fenêtre ; la réponse à la question du raccourci est simulée."""
+    """Builds a window; the answer to the shortcut question is simulated."""
     answers, windows = [], []
 
     def ask(*args, **kwargs):
@@ -462,7 +463,7 @@ def test_shortcut_button_creates_and_disables(window, fake_shortcut):
     window.shortcut_btn.invoke()
     assert fake_shortcut.created == 1
     assert str(window.shortcut_btn["state"]) == "disabled"
-    assert "Raccourci créé" in window.log.get("1.0", "end")
+    assert "Shortcut created" in window.log.get("1.0", "end")
 
 
 def test_shortcut_not_checked_periodically(window, fake_shortcut):
@@ -484,7 +485,7 @@ def test_shortcut_creation_failure_logged(window, fake_shortcut):
     fake_shortcut.fail = True
     window._update_shortcut_button()
     window.shortcut_btn.invoke()
-    assert "bureau inaccessible" in window.log.get("1.0", "end")
+    assert "desktop unreachable" in window.log.get("1.0", "end")
     assert str(window.shortcut_btn["state"]) == "normal"
 
 
@@ -492,3 +493,25 @@ def test_save_keeps_shortcut_flag(window, saved):
     window.cfg["desktop_shortcut_asked"] = True
     window.sub_var.set("Salon")
     assert saved[-1]["desktop_shortcut_asked"] is True
+
+
+# --- Startup flag renamed to English ------------------------------------------
+
+def test_login_flag_is_english_and_legacy_flag_still_works():
+    assert app.autostart.STARTUP_FLAG == "--at-login"
+    assert app.is_login_start(["app.py", "--at-login"])
+    assert app.is_login_start(["app.py", "--demarrage"])  # entry written by older versions
+
+
+def test_enabled_autostart_command_is_refreshed(tk_root, fakes):
+    fakes.enabled = True
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        assert fakes.calls == ["enable"]  # rewrites the Run entry with the current command
+    finally:
+        a._quit()
+
+
+def test_disabled_autostart_is_left_alone(window, fakes):
+    assert fakes.calls == []

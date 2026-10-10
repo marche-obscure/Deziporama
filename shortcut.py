@@ -1,4 +1,4 @@
-"""Raccourci « Deziporama » sur le bureau Windows."""
+"""The "Deziporama" shortcut on the Windows desktop."""
 
 import ctypes
 import os
@@ -14,20 +14,20 @@ APP_PATH = Path(__file__).with_name("app.py")
 ICO_PATH = Path(__file__).with_name("assets") / "deziporama.ico"
 CSIDL_DESKTOPDIRECTORY = 0x10
 
-# Les chemins passent par des variables d'environnement : aucun souci de guillemets ou d'accents.
+# Paths go through environment variables: no trouble with quotes or accented characters.
 _CREATE_SCRIPT = (
     "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:DZ_LNK); "
     "$s.TargetPath = $env:DZ_TARGET; "
     "$s.Arguments = '\"' + $env:DZ_APP + '\"'; "
     "$s.WorkingDirectory = $env:DZ_WORKDIR; "
     "if ($env:DZ_ICON) { $s.IconLocation = $env:DZ_ICON + ',0' }; "
-    "$s.Description = 'Deziporama : rangement automatique des workflows ComfyUI'; "
+    "$s.Description = 'Deziporama: automatic filing of ComfyUI workflows'; "
     "$s.Save()"
 )
 
 
 def desktop_dir() -> Path:
-    """Vrai dossier Bureau de l'utilisateur (y compris s'il est redirigé vers OneDrive)."""
+    """The user's real Desktop folder (including when redirected to OneDrive)."""
     buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
     if ctypes.windll.shell32.SHGetFolderPathW(None, CSIDL_DESKTOPDIRECTORY, None, 0, buf) != 0:
         return Path.home() / "Desktop"
@@ -49,10 +49,10 @@ def _pythonw() -> Path:
 
 
 def create(desktop: Path | None = None) -> Path:
-    """Crée le raccourci ; lève OSError en cas d'échec."""
+    """Creates the shortcut; raises OSError on failure."""
     path = shortcut_path(desktop)
     if not path.parent.is_dir():
-        raise OSError(f"dossier du bureau introuvable : {path.parent}")
+        raise OSError(f"desktop folder not found: {path.parent}")
     has_icon = ICO_PATH.exists() or logo.write_ico(ICO_PATH)
     env = {**os.environ,
            "DZ_LNK": str(path), "DZ_TARGET": str(_pythonw()), "DZ_APP": str(APP_PATH),
@@ -61,5 +61,5 @@ def create(desktop: Path | None = None) -> Path:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CREATE_SCRIPT],
         env=env, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode != 0 or not path.exists():
-        raise OSError(result.stderr.strip() or "création du raccourci impossible")
+        raise OSError(result.stderr.strip() or "could not create the shortcut")
     return path

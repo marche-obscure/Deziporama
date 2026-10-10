@@ -8,7 +8,7 @@ import single_instance
 
 @pytest.fixture
 def name():
-    # Nom unique par test : n'interfère jamais avec un applicatif réellement lancé.
+    # Unique name per test: never interferes with a really running app.
     return f"ImporteurWorkflowsComfyUI-Test-{uuid.uuid4().hex}"
 
 

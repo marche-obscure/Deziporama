@@ -1,4 +1,4 @@
-"""Détection et import des workflows ComfyUI (.json / .zip)."""
+"""Detection and import of ComfyUI workflows (.json / .zip)."""
 
 import json
 import re
@@ -11,9 +11,9 @@ from typing import Callable
 
 from send2trash import send2trash
 
-MAX_JSON_BYTES = 50 * 1024 * 1024          # au-delà, un .json n'est pas considéré comme un workflow
-MAX_EXTRACT_BYTES = 2 * 1024 * 1024 * 1024  # taille maximale d'une archive une fois extraite
-# Erreurs de lecture qui signifient « ce n'est pas un workflow exploitable » plutôt qu'un échec.
+MAX_JSON_BYTES = 50 * 1024 * 1024          # above this, a .json is not considered a workflow
+MAX_EXTRACT_BYTES = 2 * 1024 * 1024 * 1024  # maximum size of an archive once extracted
+# Read errors meaning "not a usable workflow" rather than a failure.
 _UNREADABLE = (ValueError, RecursionError, RuntimeError, NotImplementedError, MemoryError)
 
 
@@ -26,7 +26,7 @@ class ImportResult:
 
 
 def is_workflow_data(data: object) -> bool:
-    """Vrai si `data` est un workflow ComfyUI, au format interface ou API."""
+    """True if `data` is a ComfyUI workflow, in UI or API format."""
     if not isinstance(data, dict) or not data:
         return False
     if isinstance(data.get("nodes"), list) and "links" in data:
@@ -70,7 +70,7 @@ def is_workflow_zip(path: Path) -> bool:
 
 
 def unique_path(path: Path) -> Path:
-    """Renvoie `path`, ou `nom (2)`, `nom (3)`… si le chemin existe déjà."""
+    """Returns `path`, or `name (2)`, `name (3)`... if the path already exists."""
     if not path.exists():
         return path
     stem, suffix = (path.stem, path.suffix) if path.suffix else (path.name, "")
@@ -83,24 +83,24 @@ def unique_path(path: Path) -> Path:
 
 
 def _check_entries(z: zipfile.ZipFile, root: Path) -> None:
-    """Refuse toute entrée dont le chemin sortirait du dossier d'extraction."""
+    """Rejects any entry whose path would escape the extraction folder."""
     total = sum(info.file_size for info in z.infolist())
     if total > MAX_EXTRACT_BYTES:
-        raise ValueError(f"archive trop volumineuse une fois extraite ({total / 1024**3:.1f} Go)")
+        raise ValueError(f"archive too large once extracted ({total / 1024**3:.1f} GB)")
     root = root.resolve()
     for name in z.namelist():
         win = PureWindowsPath(name)
         if PurePosixPath(name).is_absolute() or win.is_absolute() or win.drive or win.root:
-            raise ValueError(f"chemin dangereux dans l'archive : {name}")
+            raise ValueError(f"dangerous path in archive: {name}")
         if not (root / name).resolve().is_relative_to(root):
-            raise ValueError(f"chemin dangereux dans l'archive : {name}")
+            raise ValueError(f"dangerous path in archive: {name}")
 
 
 def _import_json(source: Path, dest_dir: Path) -> ImportResult:
     if not is_workflow_json(source):
-        return ImportResult("ignored", source, None, "pas un workflow ComfyUI")
+        return ImportResult("ignored", source, None, "not a ComfyUI workflow")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    # Copie sous un nom temporaire puis renommage : jamais de workflow tronqué dans ComfyUI.
+    # Copy under a temporary name, then rename: never a truncated workflow in ComfyUI.
     tmp = dest_dir / f".import-{source.name}.tmp"
     try:
         shutil.copyfile(source, tmp)
@@ -113,26 +113,26 @@ def _import_json(source: Path, dest_dir: Path) -> ImportResult:
         source.unlink()
     except OSError as e:
         return ImportResult("imported", source, target,
-                            f"le fichier d'origine n'a pas pu être supprimé : {e}")
+                            f"the original file could not be deleted: {e}")
     return ImportResult("imported", source, target)
 
 
 def capitalize_words(name: str) -> str:
-    """Majuscule en tête de chaque mot, reste en minuscules (mots séparés par espace, _ ou -)."""
+    """Capital first letter of each word, the rest lowercase (words split by space, _ or -)."""
     return "".join(part[:1].upper() + part[1:].lower()
                    for part in re.split(r"([ _-]+)", name))
 
 
 def _is_macos_metadata(name: str) -> bool:
-    """Dossier technique ajouté par le Finder de macOS, sans intérêt pour ComfyUI."""
+    """Technical folder added by the macOS Finder, useless for ComfyUI."""
     return name.split("/", 1)[0] == "__MACOSX"
 
 
 def _single_root_folder(extracted: Path) -> Path | None:
-    """Le dossier extrait s'il est seul à la racine (aucun fichier à côté), sinon None.
+    """The extracted folder if it is alone at the root (no file next to it), otherwise None.
 
-    On regarde le disque plutôt que les noms du zip : Windows corrige certains noms
-    à l'extraction (espace ou point final retiré).
+    Looks at the disk rather than the zip names: Windows fixes some names
+    during extraction (trailing space or dot removed).
     """
     children = list(extracted.iterdir())
     if len(children) == 1 and children[0].is_dir():
@@ -142,7 +142,7 @@ def _single_root_folder(extracted: Path) -> Path | None:
 
 def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> ImportResult:
     if not is_workflow_zip(source):
-        return ImportResult("ignored", source, None, "aucun workflow ComfyUI dans l'archive")
+        return ImportResult("ignored", source, None, "no ComfyUI workflow in the archive")
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=dest_dir, prefix=".import-"))
     try:
@@ -152,7 +152,7 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
             z.extractall(tmp, members)
         folder = _single_root_folder(tmp)
         if folder:
-            # Le zip ne contient qu'un dossier : on le place directement, sans double dossier.
+            # The zip only holds one folder: place it directly, without a nested folder.
             target = unique_path(dest_dir / capitalize_words(folder.name))
             folder.rename(target)
             shutil.rmtree(tmp, ignore_errors=True)
@@ -164,15 +164,15 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
         raise
     try:
         trash(str(source))
-    except Exception as e:  # noqa: BLE001 — le workflow est installé : ce n'est pas un échec
+    except Exception as e:  # noqa: BLE001 - the workflow is installed: not a failure
         return ImportResult("imported", source, target,
-                            f"le zip n'a pas pu être mis à la Corbeille : {e}")
+                            f"the zip could not be moved to the Recycle Bin: {e}")
     return ImportResult("imported", source, target)
 
 
 def import_file(source: Path, dest_dir: Path,
                 trash: Callable[[str], None] = send2trash) -> ImportResult:
-    """Range un workflow téléchargé dans `dest_dir`. Ne lève jamais d'exception."""
+    """Files a downloaded workflow into `dest_dir`. Never raises."""
     source, dest_dir = Path(source), Path(dest_dir)
     try:
         ext = source.suffix.lower()
@@ -180,6 +180,6 @@ def import_file(source: Path, dest_dir: Path,
             return _import_json(source, dest_dir)
         if ext == ".zip":
             return _import_zip(source, dest_dir, trash)
-        return ImportResult("ignored", source, None, "extension non prise en charge")
-    except Exception as e:  # noqa: BLE001 — l'appelant ne doit jamais planter
+        return ImportResult("ignored", source, None, "unsupported extension")
+    except Exception as e:  # noqa: BLE001 - the caller must never crash
         return ImportResult("error", source, None, str(e) or e.__class__.__name__)

@@ -10,7 +10,7 @@ def test_icon_from_logo_is_square_rgba():
 
 
 def test_icon_is_the_dez_and_slider_crop():
-    # Le recadrage C : beaucoup d'orange (lettres) et de vert (curseur).
+    # Crop C: lots of orange (letters) and green (zipper slider).
     img = logo.icon_image(64).convert("RGB")
     raw = img.tobytes()
     pixels = list(zip(raw[0::3], raw[1::3], raw[2::3]))

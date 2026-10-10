@@ -1,4 +1,4 @@
-"""Icône de l'applicatif dans la zone de notification (près de l'horloge)."""
+"""Application icon in the notification area (next to the clock)."""
 
 from typing import Callable
 
@@ -11,7 +11,7 @@ TITLE = "Deziporama"
 
 
 def make_image() -> Image.Image:
-    """Icône tirée du logo ; à défaut, carré arrondi bleu avec une flèche de téléchargement."""
+    """Icon taken from the logo; otherwise a rounded blue square with a download arrow."""
     from_logo = logo.icon_image(64)
     if from_logo is not None:
         return from_logo
@@ -25,14 +25,14 @@ def make_image() -> Image.Image:
 
 
 class TrayIcon:
-    """Les callbacks sont appelés depuis le thread de pystray, jamais depuis Tkinter."""
+    """Callbacks are called from the pystray thread, never from Tkinter."""
 
     def __init__(self, on_show: Callable[[], None], on_quit: Callable[[], None]) -> None:
         menu = pystray.Menu(
-            pystray.MenuItem("Afficher", lambda icon, item: on_show(), default=True),
-            pystray.MenuItem("Quitter", lambda icon, item: on_quit()),
+            pystray.MenuItem("Show", lambda icon, item: on_show(), default=True),
+            pystray.MenuItem("Quit", lambda icon, item: on_quit()),
         )
-        self.icon = pystray.Icon("importeur-workflows", make_image(), TITLE, menu)
+        self.icon = pystray.Icon("deziporama", make_image(), TITLE, menu)
         self._started = False
 
     def show(self) -> None:

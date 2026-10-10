@@ -1,4 +1,4 @@
-"""Une seule copie de l'applicatif à la fois (mutex nommé Windows) et signal « afficher »."""
+"""Only one copy of the application at a time (Windows named mutex) and a "show" signal."""
 
 import ctypes
 import threading
@@ -24,8 +24,8 @@ _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 
 def _event_name(name: str) -> str:
-    # « Local\ » : propre à la session Windows de l'utilisateur.
-    return f"Local\\{name}-Afficher"
+    # "Local" namespace: scoped to the user's Windows session.
+    return f"Local\\{name}-Show"
 
 
 class SingleInstance:
@@ -34,7 +34,7 @@ class SingleInstance:
         self._handle = None
 
     def acquire(self) -> bool:
-        """Vrai si aucune autre copie ne tourne (le mutex est alors gardé jusqu'à close())."""
+        """True if no other copy is running (the mutex is then held until close())."""
         self._handle = _kernel32.CreateMutexW(None, False, self._name)
         return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
 
@@ -45,7 +45,7 @@ class SingleInstance:
 
 
 def signal_show(name: str = INSTANCE_NAME) -> bool:
-    """Demande à la copie déjà lancée d'afficher sa fenêtre. Faux si elle n'écoute pas."""
+    """Asks the running copy to show its window. False if it is not listening."""
     handle = _kernel32.OpenEventW(EVENT_MODIFY_STATE, False, _event_name(name))
     if not handle:
         return False
@@ -77,7 +77,7 @@ class _Listener(threading.Thread):
 
 
 def listen_show(name: str, on_show: Callable[[], None]) -> _Listener:
-    """Appelle on_show (depuis un thread dédié) chaque fois qu'une autre copie le demande."""
+    """Calls on_show (from a dedicated thread) each time another copy asks for it."""
     listener = _Listener(name, on_show)
     listener.start()
     return listener
