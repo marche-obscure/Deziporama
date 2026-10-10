@@ -103,3 +103,11 @@ After fixing an error (for example, a drive that was unplugged), click **Retry e
 The design document is in [`docs/superpowers/specs/2026-10-10-deziporama-design.md`](docs/superpowers/specs/2026-10-10-deziporama-design.md).
 
 Settings are stored in `config.json`, next to `app.py`. This file is not versioned.
+
+## License
+
+The source code is released under the [MIT License](LICENSE).
+
+The images in the `assets` folder (Deziporama logo and icon) are **not** covered by the
+MIT License: © 2026 marche-obscure, all rights reserved. They may not be reused, modified or
+redistributed separately from Deziporama without permission.
