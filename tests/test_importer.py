@@ -167,3 +167,15 @@ def test_unwritable_destination_is_error(tmp_path):
     r = import_file(src, blocker / "sous", trash=lambda p: None)
     assert r.status == "error"
     assert src.exists()
+
+
+def test_trash_failure_still_reported_imported(tmp_path):
+    src = make_zip(tmp_path / "pack.zip", {"wf.json": json.dumps(UI)})
+
+    def broken_trash(path):
+        raise OSError("fichier verrouillé")
+
+    r = import_file(src, tmp_path / "out", trash=broken_trash)
+    assert r.status == "imported"
+    assert r.target == tmp_path / "out" / "pack"
+    assert "Corbeille" in r.message

@@ -106,7 +106,11 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    trash(str(source))
+    try:
+        trash(str(source))
+    except Exception as e:  # noqa: BLE001 — le workflow est installé : ce n'est pas un échec
+        return ImportResult("imported", source, target,
+                            f"le zip n'a pas pu être mis à la Corbeille : {e}")
     return ImportResult("imported", source, target)
 
 

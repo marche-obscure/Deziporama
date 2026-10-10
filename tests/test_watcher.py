@@ -129,3 +129,39 @@ def test_stop(env):
     write_wf(watch / "wf.json")
     with pytest.raises(queue.Empty):
         results.get(timeout=2)
+
+
+def test_stop_does_not_wait_for_queued_files(tmp_path, monkeypatch):
+    watch = tmp_path / "dl"
+    watch.mkdir()
+    for i in range(5):
+        write_wf(watch / f"wf{i}.json")
+
+    def slow_import(path, dest):
+        time.sleep(1)
+        return watcher.ImportResult("imported", path, dest)
+
+    monkeypatch.setattr(watcher, "import_file", slow_import)
+    results = queue.Queue()
+    w = FolderWatcher(watch, lambda: tmp_path / "wf", results.put)
+    w.start(process_existing=True)
+    time.sleep(0.5)
+    t0 = time.monotonic()
+    w.stop()
+    assert time.monotonic() - t0 < 1.5
+    assert not w.running
+    time.sleep(1.5)
+    assert results.qsize() <= 1
+
+
+def test_empty_placeholder_not_reported(env):
+    """Firefox crée d'abord un fichier vide, puis renomme le .part dessus."""
+    w, watch, dest, results = env
+    w.start()
+    (watch / "wf.json").write_bytes(b"")
+    with pytest.raises(queue.Empty):
+        results.get(timeout=2)
+    write_wf(watch / "wf.json.part")
+    os.replace(watch / "wf.json.part", watch / "wf.json")
+    r = wait_result(results)
+    assert r.status == "imported"

@@ -73,6 +73,7 @@ class App:
         self.log.tag_configure("ok", foreground="#1a7f37")
         self.log.tag_configure("ignored", foreground="#777777")
         self.log.tag_configure("error", foreground="#cf222e")
+        self.log.tag_configure("warn", foreground="#b35900")
 
         for var in (self.watch_var, self.root_var, self.sub_var, self.existing_var):
             var.trace_add("write", lambda *_: self._save())
@@ -166,6 +167,8 @@ class App:
             name = result.source.name
             if result.status == "imported":
                 self._write(f"Importé : {name} → {result.target}", "ok")
+                if result.message:
+                    self._write(f"Attention : {result.message}", "warn")
             elif result.status == "ignored":
                 self._write(f"Ignoré (pas un workflow) : {name}", "ignored")
             else:
