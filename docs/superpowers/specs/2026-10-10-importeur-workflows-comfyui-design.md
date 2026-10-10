@@ -53,7 +53,7 @@ Ranger automatiquement dans ComfyUI les workflows téléchargés manuellement de
 - Dépendances ajoutées : `pystray`, `Pillow`.
 - Raccourci bureau « Deziporama.lnk » (cible `pythonw.exe app.py`, icône `assets\deziporama.ico` générée depuis le logo) :
   - proposé une seule fois au premier lancement manuel (`desktop_shortcut_asked` dans `config.json`), jamais au lancement à l'ouverture de session, jamais s'il existe déjà ;
-  - bouton « Créer le raccourci bureau », inactif quand le raccourci existe (vérifié toutes les 2 s).
+  - bouton « Créer le raccourci bureau », inactif quand le raccourci existe (vérifié à l'ouverture de la fenêtre, à son retour depuis l'horloge et après création ; pas de vérification périodique).
 - Une seule copie à la fois (mutex nommé `Local\ImporteurWorkflowsComfyUI`). Un deuxième lancement manuel affiche « Afficher celui déjà lancé / Annuler » puis se ferme ; « Afficher » fait réapparaître la fenêtre de la copie en cours (événement nommé). Relancé par Windows à l'ouverture de session alors qu'il tourne déjà : se ferme sans rien afficher.
 
 ## Détection

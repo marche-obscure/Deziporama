@@ -465,10 +465,17 @@ def test_shortcut_button_creates_and_disables(window, fake_shortcut):
     assert "Raccourci créé" in window.log.get("1.0", "end")
 
 
-def test_shortcut_button_reenabled_when_shortcut_deleted(window, fake_shortcut):
+def test_shortcut_not_checked_periodically(window, fake_shortcut):
     assert str(window.shortcut_btn["state"]) == "disabled"
     fake_shortcut.present = False
     window._check_health()
+    assert str(window.shortcut_btn["state"]) == "disabled"
+
+
+def test_shortcut_rechecked_when_window_shown(window, fake_shortcut):
+    window._hide_to_tray()
+    fake_shortcut.present = False
+    window._show_window()
     assert str(window.shortcut_btn["state"]) == "normal"
 
 

@@ -308,7 +308,6 @@ class App:
             self._set_running(False)
             self._write(f"Erreur : surveillance interrompue, le dossier {self.watcher.watch_dir} "
                         "est introuvable. Vérifiez-le puis cliquez sur Démarrer.", "error")
-        self._update_shortcut_button()
         self._schedule(HEALTH_CHECK_MS, self._check_health)
 
     # --- Raccourci bureau -----------------------------------------------------
@@ -419,6 +418,7 @@ class App:
         self.tray.show()
 
     def _show_window(self) -> None:
+        self._update_shortcut_button()  # le raccourci a pu être créé ou supprimé entre-temps
         self.tray.hide()
         self.root.deiconify()
         self.root.lift()
