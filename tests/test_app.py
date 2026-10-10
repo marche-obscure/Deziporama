@@ -228,3 +228,33 @@ def test_quit_cancels_scheduled_callbacks(window):
     assert mine <= set(window.root.tk.call("after", "info"))
     window._quit()
     assert not set(window.root.tk.call("after", "info")) & mine
+
+
+# --- Double lancement ---------------------------------------------------------
+
+def _click_in_dialog(parent, label):
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    dialogs = [w for w in parent.winfo_children() if isinstance(w, tk.Toplevel)]
+    for b in (b for d in dialogs for b in descendants(d)):
+        if b.winfo_class() == "TButton" and b.cget("text") == label:
+            b.invoke()
+            return True
+    for d in dialogs:  # bouton introuvable : on ferme pour faire échouer le test sans bloquer
+        d.destroy()
+    return False
+
+
+@pytest.mark.parametrize("label, expected", [("Afficher celui déjà lancé", True), ("Annuler", False)])
+def test_already_running_dialog(tk_root, label, expected):
+    top = tk.Toplevel(tk_root)
+    try:
+        clicked = []
+        top.after(300, lambda: clicked.append(_click_in_dialog(top, label)))
+        assert app.ask_already_running(top) is expected
+        assert clicked == [True]
+    finally:
+        top.destroy()

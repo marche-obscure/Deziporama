@@ -11,6 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import autostart
+import single_instance
 from importer import ImportResult
 from tray import TITLE, TrayIcon
 from watcher import FolderWatcher
@@ -53,6 +54,43 @@ def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
         os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, object]]):
+    """Boîte modale à boutons ; renvoie la valeur du bouton cliqué (None si fermée)."""
+    dialog = tk.Toplevel(parent)
+    dialog.title(title)
+    dialog.resizable(False, False)
+    dialog.transient(parent)
+    dialog.attributes("-topmost", True)
+    choice = {"value": None}
+
+    def pick(value):
+        choice["value"] = value
+        dialog.destroy()
+
+    body = ttk.Frame(dialog, padding=15)
+    body.pack(fill="both", expand=True)
+    ttk.Label(body, text=message).pack(pady=(0, 12))
+    row = ttk.Frame(body)
+    row.pack()
+    for label, value in buttons:
+        ttk.Button(row, text=label, command=lambda v=value: pick(v)).pack(side="left", padx=3)
+    dialog.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+    dialog.bind("<Escape>", lambda e: pick(None))
+    dialog.grab_set()
+    parent.wait_window(dialog)
+    return choice["value"]
+
+
+def ask_already_running(parent) -> bool:
+    """Avertit d'un double lancement ; vrai si l'utilisateur veut afficher la copie déjà lancée."""
+    return choice_dialog(
+        parent, "Déjà lancé",
+        "L'importeur de workflows est déjà lancé\n"
+        "(son icône se trouve près de l'horloge).\n\n"
+        "Voulez-vous afficher sa fenêtre ?",
+        [("Afficher celui déjà lancé", True), ("Annuler", False)]) is True
 
 
 def is_login_start(argv: list[str]) -> bool:
@@ -308,35 +346,18 @@ class App:
         self.tray.hide()
         self.root.deiconify()
         self.root.lift()
+        # Rappelée par une autre copie, Windows laisserait la fenêtre derrière les autres.
+        self.root.attributes("-topmost", True)
+        self.root.after(300, lambda: self.root.attributes("-topmost", False))
         self.root.focus_force()
 
     def _ask_close(self) -> str | None:
         """Boîte « Réduire / Quitter / Annuler ». Renvoie "minimize", "quit" ou None."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Fermer")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        choice = {"value": None}
-
-        def pick(value):
-            choice["value"] = value
-            dialog.destroy()
-
-        body = ttk.Frame(dialog, padding=15)
-        body.pack(fill="both", expand=True)
-        ttk.Label(body, text="Voulez-vous réduire l'applicatif près de l'horloge\n"
-                             "(la surveillance continue) ou le quitter ?").pack(pady=(0, 12))
-        row = ttk.Frame(body)
-        row.pack()
-        ttk.Button(row, text="Réduire près de l'horloge",
-                   command=lambda: pick("minimize")).pack(side="left", padx=3)
-        ttk.Button(row, text="Quitter", command=lambda: pick("quit")).pack(side="left", padx=3)
-        ttk.Button(row, text="Annuler", command=lambda: pick(None)).pack(side="left", padx=3)
-        dialog.protocol("WM_DELETE_WINDOW", lambda: pick(None))
-        dialog.bind("<Escape>", lambda e: pick(None))
-        dialog.grab_set()
-        self.root.wait_window(dialog)
-        return choice["value"]
+        return choice_dialog(
+            self.root, "Fermer",
+            "Voulez-vous réduire l'applicatif près de l'horloge\n"
+            "(la surveillance continue) ou le quitter ?",
+            [("Réduire près de l'horloge", "minimize"), ("Quitter", "quit"), ("Annuler", None)])
 
     def _close(self) -> None:
         choice = self._ask_close()
@@ -360,9 +381,27 @@ class App:
 
 
 def main() -> None:
+    at_login = is_login_start(sys.argv)
+    instance = single_instance.SingleInstance()
+    if not instance.acquire():
+        # Déjà lancé : au démarrage de session on se retire sans bruit, sinon on demande.
+        if not at_login:
+            root = tk.Tk()
+            root.withdraw()
+            if ask_already_running(root):
+                single_instance.signal_show()
+            root.destroy()
+        instance.close()
+        return
     root = tk.Tk()
-    App(root, at_login=is_login_start(sys.argv))
-    root.mainloop()
+    app = App(root, at_login=at_login)
+    listener = single_instance.listen_show(single_instance.INSTANCE_NAME,
+                                           lambda: app.commands.put("show"))
+    try:
+        root.mainloop()
+    finally:
+        listener.stop()
+        instance.close()
 
 
 if __name__ == "__main__":
