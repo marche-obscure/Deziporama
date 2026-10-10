@@ -330,3 +330,23 @@ def test_already_running_message_uses_name(tk_root):
         assert "Deziporama" in texts
     finally:
         top.destroy()
+
+
+# --- Logo -------------------------------------------------------------------------
+
+def test_window_shows_banner_and_icon(window):
+    assert window.banner_label is not None
+    assert window.banner_label.cget("image")
+    assert window.icon_images  # icône de la barre de titre / barre des tâches
+
+
+def test_window_without_logo_still_opens(tk_root, fakes, tmp_path, monkeypatch):
+    import logo
+    monkeypatch.setattr(logo, "LOGO_PATH", tmp_path / "absent.webp")
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        assert a.banner_label is None
+        assert a.icon_images == []
+    finally:
+        a._quit()

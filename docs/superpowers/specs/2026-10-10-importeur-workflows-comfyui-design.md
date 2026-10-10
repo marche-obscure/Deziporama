@@ -21,7 +21,7 @@ Ranger automatiquement dans ComfyUI les workflows téléchargés manuellement de
 
 - Python 3.14, Tkinter (inclus).
 - Dépendances : `watchdog` (surveillance), `send2trash` (Corbeille), `pytest` (tests).
-- Lancement : `Lancer.bat` (double-clic).
+- Lancement : `Lancer Deziporama.bat` (double-clic).
 
 ## Composants
 

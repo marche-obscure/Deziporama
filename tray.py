@@ -5,11 +5,16 @@ from typing import Callable
 import pystray
 from PIL import Image, ImageDraw
 
+import logo
+
 TITLE = "Deziporama"
 
 
 def make_image() -> Image.Image:
-    """Icône dessinée à la volée : carré arrondi bleu avec une flèche de téléchargement."""
+    """Icône tirée du logo ; à défaut, carré arrondi bleu avec une flèche de téléchargement."""
+    from_logo = logo.icon_image(64)
+    if from_logo is not None:
+        return from_logo
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((2, 2, 62, 62), radius=12, fill=(37, 99, 235))

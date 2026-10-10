@@ -1,0 +1,37 @@
+"""Logo Deziporama : icône (recadrage « DEZ » + curseur) et bandeau de la fenêtre."""
+
+from functools import lru_cache
+from pathlib import Path
+
+from PIL import Image
+
+LOGO_PATH = Path(__file__).with_name("assets") / "deziporama.webp"
+# Zones du logo d'origine (2000 × 2000 px).
+ICON_BOX = (60, 660, 760, 1360)       # « DEZ » avec le curseur vert : lisible en 16-32 px
+BANNER_BOX = (40, 560, 1960, 1320)    # le mot entier et la fermeture éclair
+BANNER_BACKGROUND = "#1c1b20"         # fond sombre du logo, pour prolonger le bandeau
+
+
+@lru_cache(maxsize=4)
+def _load(path: Path) -> Image.Image | None:
+    try:
+        with Image.open(path) as im:
+            return im.convert("RGBA")
+    except OSError:
+        return None
+
+
+def icon_image(size: int = 64) -> Image.Image | None:
+    logo = _load(LOGO_PATH)
+    if logo is None:
+        return None
+    return logo.crop(ICON_BOX).resize((size, size), Image.LANCZOS)
+
+
+def banner_image(width: int = 420) -> Image.Image | None:
+    logo = _load(LOGO_PATH)
+    if logo is None:
+        return None
+    band = logo.crop(BANNER_BOX)
+    height = round(width * band.height / band.width)
+    return band.resize((width, height), Image.LANCZOS)

@@ -10,7 +10,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from PIL import ImageTk
+
 import autostart
+import logo
 import single_instance
 from importer import ImportResult
 from tray import TITLE, TrayIcon
@@ -122,7 +125,9 @@ class App:
                              on_quit=lambda: self.commands.put("quit"))
 
         root.title(TITLE)
-        root.minsize(640, 420)
+        root.minsize(640, 560)
+        self.icon_images = self._set_window_icon()
+        self.banner_label = self._build_banner()
         frame = ttk.Frame(root, padding=10)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
@@ -182,6 +187,27 @@ class App:
             self._toggle()
 
     # --- Construction ---------------------------------------------------------
+
+    def _set_window_icon(self) -> list:
+        """Icône de la barre de titre et de la barre des tâches (les images doivent rester référencées)."""
+        images = [logo.icon_image(size) for size in (64, 32, 16)]
+        if any(img is None for img in images):
+            return []
+        photos = [ImageTk.PhotoImage(img, master=self.root) for img in images]
+        self.root.iconphoto(False, *photos)
+        return photos
+
+    def _build_banner(self):
+        """Bandeau du logo en haut de la fenêtre ; absent si le fichier du logo manque."""
+        img = logo.banner_image(420)
+        if img is None:
+            return None
+        self._banner_photo = ImageTk.PhotoImage(img, master=self.root)
+        band = tk.Frame(self.root, background=logo.BANNER_BACKGROUND)
+        band.pack(fill="x")
+        label = tk.Label(band, image=self._banner_photo, background=logo.BANNER_BACKGROUND, borderwidth=0)
+        label.pack()
+        return label
 
     def _folder_row(self, frame, row, label, var):
         ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=3)
