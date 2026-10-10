@@ -31,6 +31,9 @@ class FakeTray:
     def set_tooltip(self, text):
         self.tooltip = text
 
+    def refresh_menu(self):
+        self.menu_refreshed = getattr(self, "menu_refreshed", 0) + 1
+
     def stop(self):
         self.stopped = True
 
@@ -89,7 +92,8 @@ def saved(monkeypatch):
 
 @pytest.fixture
 def fakes(monkeypatch, fake_shortcut, saved):
-    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS))
+    # Language already chosen: no first-launch dialog can block the tests.
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS, language="en"))
     monkeypatch.setattr(app, "TrayIcon", FakeTray)
     fake_autostart = FakeAutostart()
     monkeypatch.setattr(app, "autostart", fake_autostart)
@@ -125,7 +129,7 @@ def test_dest_readable_from_worker_thread(window, tmp_path):
 
 
 def test_root_label_means_workflows_root(window, tmp_path):
-    window.sub_var.set(app.ROOT_LABEL)
+    window.sub_var.set("(root)")
     assert window._dest() == tmp_path
 
 
@@ -398,11 +402,15 @@ def fresh_window(tk_root, fakes, fake_shortcut, monkeypatch):
     """Builds a window; the answer to the shortcut question is simulated."""
     answers, windows = [], []
 
-    def ask(*args, **kwargs):
-        answers.append(args[1] if len(args) > 1 else kwargs.get("title"))
+    def ask(parent, title, message, buttons):
+        answers.append(message)
+        values = [value for _, value in buttons]
+        if set(values) <= set(app.i18n.LANGUAGES):  # language question
+            return ask.language
         return ask.reply
 
     ask.reply = True
+    ask.language = "fr"
     monkeypatch.setattr(app, "choice_dialog", ask)
 
     def make(**kwargs):
@@ -440,7 +448,8 @@ def test_declining_marks_asked_without_creating(fresh_window, fake_shortcut, sav
 
 def test_not_offered_when_already_asked(fresh_window, fake_shortcut, monkeypatch):
     fake_shortcut.present = False
-    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS, desktop_shortcut_asked=True))
+    monkeypatch.setattr(app, "load_config",
+                        lambda path=None: dict(app.DEFAULTS, language="en", desktop_shortcut_asked=True))
     fresh_window()
     assert fresh_window.answers == []
 
@@ -515,3 +524,93 @@ def test_enabled_autostart_command_is_refreshed(tk_root, fakes):
 
 def test_disabled_autostart_is_left_alone(window, fakes):
     assert fakes.calls == []
+
+
+# --- Languages --------------------------------------------------------------------
+
+def test_language_selector_in_banner(window):
+    assert list(window.language_menu_values) == ["English", "Français", "Deutsch"]
+    assert window.language_var.get() == "English"
+
+
+def test_switching_language_retranslates_window(window, saved):
+    window.language_var.set("Français")
+    assert window.toggle_btn.cget("text") == "Démarrer"
+    assert window.retry_btn.cget("text") == "Réessayer les erreurs"
+    assert window.shortcut_btn.cget("text") == "Créer le raccourci bureau"
+    assert window.tray.tooltip == "Deziporama — surveillance arrêtée"
+    assert window.tray.menu_refreshed >= 1
+    assert saved[-1]["language"] == "fr"
+    window.language_var.set("Deutsch")
+    assert window.toggle_btn.cget("text") == "Starten"
+
+
+def test_switching_language_keeps_root_subfolder(window, tmp_path):
+    window.sub_var.set("(root)")
+    window.language_var.set("Français")
+    assert window.sub_var.get() == "(racine)"
+    assert window._dest() == tmp_path
+    assert "(racine)" in window.sub_combo["values"]
+
+
+def test_first_launch_asks_language_then_shortcut(fresh_window, fake_shortcut, saved, monkeypatch):
+    fake_shortcut.present = False
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS))
+    a = fresh_window()
+    assert fresh_window.answers[0] == app.i18n.LANGUAGE_PROMPT
+    assert fresh_window.answers[1] == "Créer un raccourci Deziporama sur le bureau ?"  # asked in French
+    assert saved[-1]["language"] == "fr"
+    assert a.toggle_btn.cget("text") == "Démarrer"
+
+
+def test_closing_language_dialog_keeps_windows_language(fresh_window, saved, monkeypatch):
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS))
+    monkeypatch.setattr(app.i18n, "system_language", lambda: "de")
+    fresh_window.ask.language = None
+    a = fresh_window()
+    assert saved[-1]["language"] == "de"
+    assert a.toggle_btn.cget("text") == "Starten"
+
+
+def test_language_asked_only_once(fresh_window):
+    fresh_window()  # language "en" already saved by the fakes
+    assert app.i18n.LANGUAGE_PROMPT not in fresh_window.answers
+
+
+def test_language_not_asked_at_login(fresh_window, monkeypatch):
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS))
+    fresh_window(at_login=True)
+    assert fresh_window.answers == []
+
+
+def test_windows_language_used_until_chosen(monkeypatch):
+    monkeypatch.setattr(app.i18n, "system_language", lambda: "de")
+    app.init_language(dict(app.DEFAULTS))
+    assert app.i18n.get_language() == "de"
+    app.init_language(dict(app.DEFAULTS, language="fr"))
+    assert app.i18n.get_language() == "fr"
+
+
+def test_already_running_dialog_in_current_language(tk_root):
+    app.i18n.set_language("de")
+    top = tk.Toplevel(tk_root)
+    texts = []
+
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    def read_then_cancel():
+        dialogs = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)]
+        texts.extend(w.cget("text") for d in dialogs for w in descendants(d)
+                     if w.winfo_class() in ("TLabel", "TButton"))
+        _click_in_dialog(top, "Abbrechen")
+
+    try:
+        top.after(300, read_then_cancel)
+        assert app.ask_already_running(top) is False
+        assert any(x.startswith("Deziporama läuft bereits") for x in texts), texts
+        assert "Laufendes Fenster anzeigen" in texts
+    finally:
+        top.destroy()

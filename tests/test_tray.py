@@ -21,3 +21,10 @@ def test_tooltip():
     t = tray.TrayIcon(on_show=lambda: None, on_quit=lambda: None)
     t.set_tooltip("watching")
     assert t.icon.title == "watching"
+
+
+def test_menu_follows_language():
+    import i18n
+    t = tray.TrayIcon(on_show=lambda: None, on_quit=lambda: None)
+    i18n.set_language("de")
+    assert [item.text for item in t.icon.menu.items] == ["Anzeigen", "Beenden"]

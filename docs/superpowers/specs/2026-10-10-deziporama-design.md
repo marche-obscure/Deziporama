@@ -14,7 +14,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 - Choosing the Discord "channel" becomes choosing a **destination subfolder**.
 - Default workflows root: `G:\GenerateurIA\ComfyUI\User\default\workflows` (the author's install; other users pick theirs with Browse…).
 - Default watched folder: the user's `Downloads` folder.
-- UI: a small Tkinter window, in English.
+- UI: a small Tkinter window in English, French or German (see Languages).
 - The original zip is sent to the **Recycle Bin** after a successful extraction.
 
 ## Technology
@@ -34,6 +34,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 | `autostart.py` | Start at Windows sign-in (user's Run registry key). | `winreg` |
 | `single_instance.py` | One copy at a time (named mutex) and "show" signal (named event). | `ctypes` |
 | `shortcut.py` | Desktop shortcut creation (PowerShell / WScript.Shell). | `logo` |
+| `i18n.py` | UI texts in English, French and German; current language; Windows language detection. | `ctypes` |
 | `logo.py` | Icon and banner taken from `assets/deziporama.webp`; `.ico` generation. | `Pillow` |
 | `config.json` | Saved settings (created on first launch, not versioned). | — |
 
@@ -49,7 +50,15 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 - Timestamped log: imported in green, ignored in grey, warnings in orange, errors in red.
 - Settings are saved to `config.json` on every change (atomic write; wrong types fall back to defaults).
 - The chosen subfolder is read when each file is handled (no restart needed after changing it).
-- Every dialog is centered on the screen.
+- Every dialog is centered on the screen and carries the logo icon.
+
+## Languages
+
+- English, French and German. All texts live in `i18n.py` (`t("key")`); every key exists in the three languages with the same placeholders.
+- Language selector (English / Français / Deutsch) at the top-right of the banner. Switching is immediate: window, tray menu and tooltip, and every later dialog and log line (lines already in the log keep their language). The choice is saved as `language` in `config.json`.
+- First manual launch: a dialog "Choose your language" (written in the three languages) with the Windows language first; closing it keeps the Windows language. Asked only once, before the desktop shortcut question; never at sign-in (the Windows language is used until a choice is made).
+- The second-copy warning uses the saved language.
+- Code, comments and the `.bat` launcher stay in English; `tests/test_english.py` guards it (translation files excepted).
 
 ## Notification area and Windows integration
 
@@ -92,7 +101,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 ## Tests
 
 - `pytest` suite under `tests/` (temporary folders, test registry key, fakes for the tray and the registry in window tests).
-- `tests/test_english.py` guards that the source code (strings and comments) stays in English.
+- `tests/test_english.py` guards that the source code (strings and comments) stays in English, except the translation files.
 - Manual check: start the application, download a workflow zip, check the result in ComfyUI.
 
 ## Out of scope

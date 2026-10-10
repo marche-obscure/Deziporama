@@ -9,6 +9,7 @@ from typing import Callable
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from i18n import t
 from importer import ImportResult, import_file
 
 EXTENSIONS = {".json", ".zip"}
@@ -159,7 +160,7 @@ class FolderWatcher:
             if stop.is_set():
                 return
             result = ImportResult("error", path, None,
-                                  f"download not finished after {READY_TIMEOUT:.0f} s")
+                                  t("msg_download_unfinished", seconds=READY_TIMEOUT))
         elif path.stat().st_size == 0:
             # Empty placeholder created by the browser (Firefox): the real content arrives by rename.
             return

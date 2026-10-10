@@ -20,6 +20,7 @@ Deziporama never connects to Discord. It only watches your Downloads folder, so 
 - **Safe**: archives trying to write outside their folder are rejected, extraction is atomic, and there are size limits.
 - **Stays out of the way**: minimizes to the notification area, can start at Windows sign-in, and only one copy runs at a time.
 - **Desktop shortcut** offered on first launch, or available from a button later.
+- **English, French and German**: chosen on first launch, changeable anytime from the banner.
 
 ## Requirements
 
@@ -33,7 +34,8 @@ Deziporama never connects to Discord. It only watches your Downloads folder, so 
 
 The first launch creates a private Python environment (`.venv`) and installs the dependencies. This takes a minute and needs an Internet connection. Later launches are instant.
 
-On the first launch, Deziporama offers to create a desktop shortcut.
+On the first launch, Deziporama asks for your language (English, Français or Deutsch), then offers to create a desktop shortcut.
+You can change the language later with the selector in the top-right corner of the banner.
 
 ## Usage
 

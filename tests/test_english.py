@@ -16,7 +16,7 @@ FRENCH_WORDS = re.compile(
     r"corbeille|workflows? (?:non|déjà))\b",
     re.IGNORECASE)
 # The guard itself has to spell out French words to detect them.
-ALLOWED = {"test_english.py"}
+ALLOWED = {"test_english.py", "i18n.py", "test_i18n.py", "test_app.py", "test_tray.py"}  # translations live in i18n.py
 
 
 def texts(path: Path):

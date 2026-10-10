@@ -11,6 +11,8 @@ from typing import Callable
 
 from send2trash import send2trash
 
+from i18n import t
+
 MAX_JSON_BYTES = 50 * 1024 * 1024          # above this, a .json is not considered a workflow
 MAX_EXTRACT_BYTES = 2 * 1024 * 1024 * 1024  # maximum size of an archive once extracted
 # Read errors meaning "not a usable workflow" rather than a failure.
@@ -86,19 +88,19 @@ def _check_entries(z: zipfile.ZipFile, root: Path) -> None:
     """Rejects any entry whose path would escape the extraction folder."""
     total = sum(info.file_size for info in z.infolist())
     if total > MAX_EXTRACT_BYTES:
-        raise ValueError(f"archive too large once extracted ({total / 1024**3:.1f} GB)")
+        raise ValueError(t("msg_too_large", size=total / 1024**3))
     root = root.resolve()
     for name in z.namelist():
         win = PureWindowsPath(name)
         if PurePosixPath(name).is_absolute() or win.is_absolute() or win.drive or win.root:
-            raise ValueError(f"dangerous path in archive: {name}")
+            raise ValueError(t("msg_dangerous_path", name=name))
         if not (root / name).resolve().is_relative_to(root):
-            raise ValueError(f"dangerous path in archive: {name}")
+            raise ValueError(t("msg_dangerous_path", name=name))
 
 
 def _import_json(source: Path, dest_dir: Path) -> ImportResult:
     if not is_workflow_json(source):
-        return ImportResult("ignored", source, None, "not a ComfyUI workflow")
+        return ImportResult("ignored", source, None, t("msg_not_workflow"))
     dest_dir.mkdir(parents=True, exist_ok=True)
     # Copy under a temporary name, then rename: never a truncated workflow in ComfyUI.
     tmp = dest_dir / f".import-{source.name}.tmp"
@@ -113,7 +115,7 @@ def _import_json(source: Path, dest_dir: Path) -> ImportResult:
         source.unlink()
     except OSError as e:
         return ImportResult("imported", source, target,
-                            f"the original file could not be deleted: {e}")
+                            t("msg_original_not_deleted", error=e))
     return ImportResult("imported", source, target)
 
 
@@ -142,7 +144,7 @@ def _single_root_folder(extracted: Path) -> Path | None:
 
 def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> ImportResult:
     if not is_workflow_zip(source):
-        return ImportResult("ignored", source, None, "no ComfyUI workflow in the archive")
+        return ImportResult("ignored", source, None, t("msg_no_workflow_in_zip"))
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=dest_dir, prefix=".import-"))
     try:
@@ -166,7 +168,7 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
         trash(str(source))
     except Exception as e:  # noqa: BLE001 - the workflow is installed: not a failure
         return ImportResult("imported", source, target,
-                            f"the zip could not be moved to the Recycle Bin: {e}")
+                            t("msg_not_trashed", error=e))
     return ImportResult("imported", source, target)
 
 
@@ -180,6 +182,6 @@ def import_file(source: Path, dest_dir: Path,
             return _import_json(source, dest_dir)
         if ext == ".zip":
             return _import_zip(source, dest_dir, trash)
-        return ImportResult("ignored", source, None, "unsupported extension")
+        return ImportResult("ignored", source, None, t("msg_unsupported"))
     except Exception as e:  # noqa: BLE001 - the caller must never crash
         return ImportResult("error", source, None, str(e) or e.__class__.__name__)

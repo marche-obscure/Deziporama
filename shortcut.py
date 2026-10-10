@@ -8,6 +8,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 import logo
+from i18n import t
 
 SHORTCUT_NAME = "Deziporama.lnk"
 APP_PATH = Path(__file__).with_name("app.py")
@@ -52,7 +53,7 @@ def create(desktop: Path | None = None) -> Path:
     """Creates the shortcut; raises OSError on failure."""
     path = shortcut_path(desktop)
     if not path.parent.is_dir():
-        raise OSError(f"desktop folder not found: {path.parent}")
+        raise OSError(t("msg_desktop_missing", path=path.parent))
     has_icon = ICO_PATH.exists() or logo.write_ico(ICO_PATH)
     env = {**os.environ,
            "DZ_LNK": str(path), "DZ_TARGET": str(_pythonw()), "DZ_APP": str(APP_PATH),
@@ -61,5 +62,5 @@ def create(desktop: Path | None = None) -> Path:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CREATE_SCRIPT],
         env=env, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode != 0 or not path.exists():
-        raise OSError(result.stderr.strip() or "could not create the shortcut")
+        raise OSError(result.stderr.strip() or t("msg_shortcut_failed"))
     return path

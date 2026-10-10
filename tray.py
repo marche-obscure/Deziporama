@@ -6,6 +6,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 import logo
+from i18n import t
 
 TITLE = "Deziporama"
 
@@ -29,8 +30,8 @@ class TrayIcon:
 
     def __init__(self, on_show: Callable[[], None], on_quit: Callable[[], None]) -> None:
         menu = pystray.Menu(
-            pystray.MenuItem("Show", lambda icon, item: on_show(), default=True),
-            pystray.MenuItem("Quit", lambda icon, item: on_quit()),
+            pystray.MenuItem(lambda item: t("tray_show"), lambda icon, item: on_show(), default=True),
+            pystray.MenuItem(lambda item: t("tray_quit"), lambda icon, item: on_quit()),
         )
         self.icon = pystray.Icon("deziporama", make_image(), TITLE, menu)
         self._started = False
@@ -47,6 +48,11 @@ class TrayIcon:
 
     def set_tooltip(self, text: str) -> None:
         self.icon.title = text
+
+    def refresh_menu(self) -> None:
+        """Menu texts are evaluated on display; Windows needs a refresh after a language change."""
+        if self._started:
+            self.icon.update_menu()
 
     def stop(self) -> None:
         if self._started:
