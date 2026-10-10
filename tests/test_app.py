@@ -55,9 +55,39 @@ class FakeAutostart:
         self.enabled = False
 
 
+class FakeShortcut:
+    """Par défaut le raccourci existe : aucune question ne s'ouvre dans les autres tests."""
+
+    def __init__(self):
+        self.present, self.fail, self.created = True, False, 0
+
+    def exists(self):
+        return self.present
+
+    def create(self):
+        if self.fail:
+            raise OSError("bureau inaccessible")
+        self.created += 1
+        self.present = True
+        return "C:/Bureau/Deziporama.lnk"
+
+
 @pytest.fixture
-def fakes(monkeypatch):
-    monkeypatch.setattr(app, "save_config", lambda cfg, path=None: None)
+def fake_shortcut(monkeypatch):
+    fake = FakeShortcut()
+    monkeypatch.setattr(app, "shortcut", fake)
+    return fake
+
+
+@pytest.fixture
+def saved(monkeypatch):
+    configs = []
+    monkeypatch.setattr(app, "save_config", lambda cfg, path=None: configs.append(dict(cfg)))
+    return configs
+
+
+@pytest.fixture
+def fakes(monkeypatch, fake_shortcut, saved):
     monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS))
     monkeypatch.setattr(app, "TrayIcon", FakeTray)
     fake_autostart = FakeAutostart()
@@ -350,3 +380,108 @@ def test_window_without_logo_still_opens(tk_root, fakes, tmp_path, monkeypatch):
         assert a.icon_images == []
     finally:
         a._quit()
+
+
+# --- Raccourci bureau -------------------------------------------------------------
+
+def pump(root, seconds=0.6):
+    import time
+    end = time.time() + seconds
+    while time.time() < end:
+        root.update()
+        time.sleep(0.02)
+
+
+@pytest.fixture
+def fresh_window(tk_root, fakes, fake_shortcut, monkeypatch):
+    """Fabrique une fenêtre ; la réponse à la question du raccourci est simulée."""
+    answers, windows = [], []
+
+    def ask(*args, **kwargs):
+        answers.append(args[1] if len(args) > 1 else kwargs.get("title"))
+        return ask.reply
+
+    ask.reply = True
+    monkeypatch.setattr(app, "choice_dialog", ask)
+
+    def make(**kwargs):
+        top = tk.Toplevel(tk_root)
+        a = app.App(top, **kwargs)
+        windows.append(a)
+        pump(top)
+        return a
+
+    make.answers = answers
+    make.ask = ask
+    yield make
+    for a in windows:
+        if a.root.winfo_exists():
+            a._quit()
+
+
+def test_first_launch_offers_shortcut_and_creates_it(fresh_window, fake_shortcut, saved):
+    fake_shortcut.present = False
+    a = fresh_window()
+    assert len(fresh_window.answers) == 1
+    assert fake_shortcut.created == 1
+    assert saved[-1]["desktop_shortcut_asked"] is True
+    assert str(a.shortcut_btn["state"]) == "disabled"
+
+
+def test_declining_marks_asked_without_creating(fresh_window, fake_shortcut, saved):
+    fake_shortcut.present = False
+    fresh_window.ask.reply = False
+    a = fresh_window()
+    assert fake_shortcut.created == 0
+    assert saved[-1]["desktop_shortcut_asked"] is True
+    assert str(a.shortcut_btn["state"]) == "normal"
+
+
+def test_not_offered_when_already_asked(fresh_window, fake_shortcut, monkeypatch):
+    fake_shortcut.present = False
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(app.DEFAULTS, desktop_shortcut_asked=True))
+    fresh_window()
+    assert fresh_window.answers == []
+
+
+def test_not_offered_when_shortcut_exists(fresh_window):
+    fresh_window()
+    assert fresh_window.answers == []
+
+
+def test_not_offered_at_login(fresh_window, fake_shortcut):
+    fake_shortcut.present = False
+    fresh_window(at_login=True)
+    assert fresh_window.answers == []
+
+
+def test_shortcut_button_creates_and_disables(window, fake_shortcut):
+    fake_shortcut.present = False
+    window._update_shortcut_button()
+    assert str(window.shortcut_btn["state"]) == "normal"
+    window.shortcut_btn.invoke()
+    assert fake_shortcut.created == 1
+    assert str(window.shortcut_btn["state"]) == "disabled"
+    assert "Raccourci créé" in window.log.get("1.0", "end")
+
+
+def test_shortcut_button_reenabled_when_shortcut_deleted(window, fake_shortcut):
+    assert str(window.shortcut_btn["state"]) == "disabled"
+    fake_shortcut.present = False
+    window._check_health()
+    assert str(window.shortcut_btn["state"]) == "normal"
+
+
+def test_shortcut_creation_failure_logged(window, fake_shortcut):
+    fake_shortcut.present = False
+    fake_shortcut.fail = True
+    window._update_shortcut_button()
+    window.shortcut_btn.invoke()
+    assert "bureau inaccessible" in window.log.get("1.0", "end")
+    assert str(window.shortcut_btn["state"]) == "normal"
+
+
+def test_save_keeps_shortcut_flag(window, saved):
+    window.cfg["desktop_shortcut_asked"] = True
+    window.sub_var.set("Salon")
+    assert saved[-1]["desktop_shortcut_asked"] is True

@@ -43,3 +43,16 @@ def test_tray_falls_back_without_logo(tmp_path, monkeypatch):
     monkeypatch.setattr(logo, "LOGO_PATH", tmp_path / "absent.webp")
     img = tray.make_image()
     assert img.size == (64, 64)
+
+
+def test_write_ico(tmp_path):
+    from PIL import Image
+    path = tmp_path / "x.ico"
+    assert logo.write_ico(path)
+    with Image.open(path) as ico:
+        assert (32, 32) in ico.info["sizes"] and (256, 256) in ico.info["sizes"]
+
+
+def test_write_ico_without_logo(tmp_path, monkeypatch):
+    monkeypatch.setattr(logo, "LOGO_PATH", tmp_path / "absent.webp")
+    assert not logo.write_ico(tmp_path / "x.ico")

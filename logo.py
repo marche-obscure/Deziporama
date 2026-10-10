@@ -35,3 +35,12 @@ def banner_image(width: int = 420) -> Image.Image | None:
     band = logo.crop(BANNER_BOX)
     height = round(width * band.height / band.width)
     return band.resize((width, height), Image.LANCZOS)
+
+
+def write_ico(path: Path) -> bool:
+    """Écrit l'icône au format .ico (raccourci bureau). Faux si le logo est absent."""
+    img = icon_image(256)
+    if img is None:
+        return False
+    img.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (256, 256)])
+    return True

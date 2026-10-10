@@ -14,6 +14,7 @@ from PIL import ImageTk
 
 import autostart
 import logo
+import shortcut
 import single_instance
 from importer import ImportResult
 from tray import TITLE, TrayIcon
@@ -25,6 +26,7 @@ DEFAULTS = {
     "workflows_root": r"G:\GenerateurIA\ComfyUI\User\default\workflows",
     "subfolder": "",
     "process_existing": False,
+    "desktop_shortcut_asked": False,
 }
 ROOT_LABEL = "(racine)"
 HEALTH_CHECK_MS = 2000
@@ -165,6 +167,9 @@ class App:
         self.retry_btn = ttk.Button(buttons, text="Réessayer les erreurs", command=self._retry,
                                     state="disabled")
         self.retry_btn.grid(row=0, column=1, padx=(5, 0))
+        self.shortcut_btn = ttk.Button(buttons, text="Créer le raccourci bureau",
+                                       command=self._create_shortcut)
+        self.shortcut_btn.grid(row=0, column=2, padx=(5, 0))
 
         self.log = tk.Text(frame, height=14, state="disabled", wrap="word")
         self.log.grid(row=6, column=0, columnspan=3, sticky="nsew")
@@ -182,9 +187,12 @@ class App:
         self._schedule(200, self._drain)
         self._schedule(HEALTH_CHECK_MS, self._check_health)
         self._set_running(False)
+        self._update_shortcut_button()
         if at_login:
             self._hide_to_tray()
             self._toggle()
+        elif not self.cfg["desktop_shortcut_asked"] and not self._shortcut_exists():
+            self._schedule(300, self._offer_shortcut)
 
     # --- Construction ---------------------------------------------------------
 
@@ -300,7 +308,36 @@ class App:
             self._set_running(False)
             self._write(f"Erreur : surveillance interrompue, le dossier {self.watcher.watch_dir} "
                         "est introuvable. Vérifiez-le puis cliquez sur Démarrer.", "error")
+        self._update_shortcut_button()
         self._schedule(HEALTH_CHECK_MS, self._check_health)
+
+    # --- Raccourci bureau -----------------------------------------------------
+
+    def _shortcut_exists(self) -> bool:
+        try:
+            return shortcut.exists()
+        except OSError:
+            return False
+
+    def _update_shortcut_button(self) -> None:
+        self.shortcut_btn.configure(state="disabled" if self._shortcut_exists() else "normal")
+
+    def _create_shortcut(self) -> None:
+        try:
+            path = shortcut.create()
+        except OSError as e:
+            self._write(f"Erreur : raccourci non créé — {e}", "error")
+        else:
+            self._write(f"Raccourci créé sur le bureau : {path}", "ok")
+        self._update_shortcut_button()
+
+    def _offer_shortcut(self) -> None:
+        """Premier lancement : propose le raccourci bureau, une seule fois quelle que soit la réponse."""
+        self.cfg["desktop_shortcut_asked"] = True
+        self._save()
+        if choice_dialog(self.root, TITLE, "Créer un raccourci Deziporama sur le bureau ?",
+                         [("Oui, créer", True), ("Non merci", False)]) is True:
+            self._create_shortcut()
 
     def _set_running(self, running: bool) -> None:
         state = "disabled" if running else "normal"
@@ -354,6 +391,7 @@ class App:
             "workflows_root": self.root_var.get(),
             "subfolder": "" if sub == ROOT_LABEL else sub,
             "process_existing": self.existing_var.get(),
+            "desktop_shortcut_asked": self.cfg.get("desktop_shortcut_asked", False),
         }
         try:
             save_config(self.cfg)
