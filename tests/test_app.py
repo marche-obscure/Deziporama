@@ -258,3 +258,22 @@ def test_already_running_dialog(tk_root, label, expected):
         assert clicked == [True]
     finally:
         top.destroy()
+
+
+def test_already_running_dialog_visible_with_hidden_parent(tk_root):
+    """Deuxième copie : la fenêtre principale est cachée, l'avertissement doit rester visible."""
+    top = tk.Toplevel(tk_root)
+    top.withdraw()
+    seen = []
+
+    def check_then_click():
+        dialogs = [w for w in top.winfo_children() if isinstance(w, tk.Toplevel)]
+        seen.append(bool(dialogs) and bool(dialogs[0].winfo_viewable()))
+        _click_in_dialog(top, "Annuler")
+
+    try:
+        top.after(500, check_then_click)
+        app.ask_already_running(top)
+        assert seen == [True]
+    finally:
+        top.destroy()

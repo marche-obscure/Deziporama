@@ -61,7 +61,9 @@ def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, obj
     dialog = tk.Toplevel(parent)
     dialog.title(title)
     dialog.resizable(False, False)
-    dialog.transient(parent)
+    # Rattachée à une fenêtre cachée, Windows ne l'afficherait jamais (cas de la deuxième copie).
+    if parent.winfo_viewable():
+        dialog.transient(parent)
     dialog.attributes("-topmost", True)
     choice = {"value": None}
 
