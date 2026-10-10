@@ -44,6 +44,14 @@ Ranger automatiquement dans ComfyUI les workflows téléchargés manuellement de
 - Les réglages sont sauvegardés dans `config.json` à chaque modification.
 - Le sous-dossier choisi est lu au moment où chaque fichier est traité (changer de sous-dossier ne nécessite pas de redémarrer la surveillance).
 
+### Ajouts du 2026-10-10 : zone de notification et lancement automatique
+
+- Case « Lancer à l'ouverture de session Windows » : valeur `ImporteurWorkflowsComfyUI` dans `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (sans droits administrateur), commande `pythonw.exe app.py --demarrage`. L'état de la case est lu dans le registre.
+- Lancé avec `--demarrage` : la fenêtre ne s'ouvre pas, l'icône apparaît près de l'horloge et la surveillance démarre avec les derniers réglages.
+- Bouton Réduire : la fenêtre quitte la barre des tâches, une icône apparaît dans la zone de notification (clic = Afficher ; clic droit = Afficher / Quitter ; infobulle = état de la surveillance).
+- Bouton Fermer : boîte « Réduire près de l'horloge / Quitter / Annuler ».
+- Dépendances ajoutées : `pystray`, `Pillow`.
+
 ## Détection
 
 - Extensions ignorées : `.crdownload`, `.tmp`, `.part`, tout autre que `.json`/`.zip`.

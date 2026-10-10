@@ -4,12 +4,15 @@ import json
 import os
 import queue
 import re
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import autostart
 from importer import ImportResult
+from tray import TITLE, TrayIcon
 from watcher import FolderWatcher
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
@@ -52,14 +55,23 @@ def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def is_login_start(argv: list[str]) -> bool:
+    """Vrai si l'applicatif a été lancé par Windows à l'ouverture de session."""
+    return autostart.STARTUP_FLAG in argv[1:]
+
+
 class App:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, at_login: bool = False) -> None:
         self.root = root
         self.cfg = load_config()
         self.results: queue.Queue = queue.Queue()
+        self.commands: queue.Queue = queue.Queue()  # ordres venant de l'icône (autre thread)
         self.watcher: FolderWatcher | None = None
+        self._scheduled: dict[str, str] = {}
+        self.tray = TrayIcon(on_show=lambda: self.commands.put("show"),
+                             on_quit=lambda: self.commands.put("quit"))
 
-        root.title("Importeur de workflows ComfyUI")
+        root.title(TITLE)
         root.minsize(640, 420)
         frame = ttk.Frame(root, padding=10)
         frame.pack(fill="both", expand=True)
@@ -81,9 +93,17 @@ class App:
 
         ttk.Checkbutton(frame, text="Traiter aussi les fichiers déjà présents au démarrage",
                         variable=self.existing_var).grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
+        try:
+            enabled = autostart.is_enabled()
+        except OSError:
+            enabled = False
+        self.autostart_var = tk.BooleanVar(value=enabled)
+        ttk.Checkbutton(frame, text="Lancer à l'ouverture de session Windows (réduit, surveillance démarrée)",
+                        variable=self.autostart_var).grid(row=4, column=0, columnspan=3, sticky="w", pady=3)
+        self.autostart_var.trace_add("write", lambda *_: self._apply_autostart())
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=4, column=0, columnspan=3, sticky="ew", pady=6)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=6)
         buttons.columnconfigure(0, weight=1)
         self.toggle_btn = ttk.Button(buttons, text="Démarrer", command=self._toggle)
         self.toggle_btn.grid(row=0, column=0, sticky="ew")
@@ -92,8 +112,8 @@ class App:
         self.retry_btn.grid(row=0, column=1, padx=(5, 0))
 
         self.log = tk.Text(frame, height=14, state="disabled", wrap="word")
-        self.log.grid(row=5, column=0, columnspan=3, sticky="nsew")
-        frame.rowconfigure(5, weight=1)
+        self.log.grid(row=6, column=0, columnspan=3, sticky="nsew")
+        frame.rowconfigure(6, weight=1)
         self.log.tag_configure("ok", foreground="#1a7f37")
         self.log.tag_configure("ignored", foreground="#777777")
         self.log.tag_configure("error", foreground="#cf222e")
@@ -103,8 +123,13 @@ class App:
             var.trace_add("write", lambda *_: self._save())
         self._refresh_subfolders()
         root.protocol("WM_DELETE_WINDOW", self._close)
-        root.after(200, self._drain)
-        root.after(HEALTH_CHECK_MS, self._check_health)
+        root.bind("<Unmap>", self._on_unmap)
+        self._schedule(200, self._drain)
+        self._schedule(HEALTH_CHECK_MS, self._check_health)
+        self._set_running(False)
+        if at_login:
+            self._hide_to_tray()
+            self._toggle()
 
     # --- Construction ---------------------------------------------------------
 
@@ -199,16 +224,27 @@ class App:
             self._set_running(False)
             self._write(f"Erreur : surveillance interrompue, le dossier {self.watcher.watch_dir} "
                         "est introuvable. Vérifiez-le puis cliquez sur Démarrer.", "error")
-        self.root.after(HEALTH_CHECK_MS, self._check_health)
+        self._schedule(HEALTH_CHECK_MS, self._check_health)
 
     def _set_running(self, running: bool) -> None:
         state = "disabled" if running else "normal"
         for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
             widget.configure(state=state)
         self.toggle_btn.configure(text="Arrêter" if running else "Démarrer")
+        self.tray.set_tooltip(f"{TITLE} — surveillance {'active' if running else 'arrêtée'}")
         self._update_retry()
 
     def _drain(self) -> None:
+        while True:
+            try:
+                command = self.commands.get_nowait()
+            except queue.Empty:
+                break
+            if command == "show":
+                self._show_window()
+            elif command == "quit":
+                self._quit()
+                return
         while True:
             try:
                 result: ImportResult = self.results.get_nowait()
@@ -225,7 +261,7 @@ class App:
                 self._write(f"Erreur : {name} — {result.message} "
                             "(corrigez puis cliquez sur « Réessayer les erreurs »)", "error")
         self._update_retry()
-        self.root.after(200, self._drain)
+        self._schedule(200, self._drain)
 
     # --- Divers ---------------------------------------------------------------
 
@@ -248,15 +284,84 @@ class App:
         except OSError as e:
             self._write(f"Erreur : réglages non sauvegardés — {e}", "error")
 
+    def _apply_autostart(self) -> None:
+        wanted = self.autostart_var.get()
+        try:
+            autostart.enable() if wanted else autostart.disable()
+        except OSError as e:
+            self._write(f"Erreur : lancement à l'ouverture de session non modifié — {e}", "error")
+            if self.autostart_var.get() != (not wanted):
+                self.autostart_var.set(not wanted)
+
+    # --- Zone de notification et fermeture ------------------------------------
+
+    def _on_unmap(self, event) -> None:
+        # Bouton « Réduire » : la fenêtre quitte la barre des tâches pour la zone de notification.
+        if event.widget is self.root and self.root.state() == "iconic":
+            self._hide_to_tray()
+
+    def _hide_to_tray(self) -> None:
+        self.root.withdraw()
+        self.tray.show()
+
+    def _show_window(self) -> None:
+        self.tray.hide()
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _ask_close(self) -> str | None:
+        """Boîte « Réduire / Quitter / Annuler ». Renvoie "minimize", "quit" ou None."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Fermer")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        choice = {"value": None}
+
+        def pick(value):
+            choice["value"] = value
+            dialog.destroy()
+
+        body = ttk.Frame(dialog, padding=15)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Voulez-vous réduire l'applicatif près de l'horloge\n"
+                             "(la surveillance continue) ou le quitter ?").pack(pady=(0, 12))
+        row = ttk.Frame(body)
+        row.pack()
+        ttk.Button(row, text="Réduire près de l'horloge",
+                   command=lambda: pick("minimize")).pack(side="left", padx=3)
+        ttk.Button(row, text="Quitter", command=lambda: pick("quit")).pack(side="left", padx=3)
+        ttk.Button(row, text="Annuler", command=lambda: pick(None)).pack(side="left", padx=3)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+        dialog.bind("<Escape>", lambda e: pick(None))
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+        return choice["value"]
+
     def _close(self) -> None:
+        choice = self._ask_close()
+        if choice == "minimize":
+            self._hide_to_tray()
+        elif choice == "quit":
+            self._quit()
+
+    def _schedule(self, ms: int, callback) -> None:
+        """root.after mémorisé par fonction, pour pouvoir tout annuler en quittant."""
+        self._scheduled[callback.__name__] = self.root.after(ms, callback)
+
+    def _quit(self) -> None:
+        for after_id in self._scheduled.values():
+            self.root.after_cancel(after_id)
+        self._scheduled.clear()
         if self.watcher:
             self.watcher.stop()
+        self.tray.stop()
         self.root.destroy()
 
 
 def main() -> None:
     root = tk.Tk()
-    App(root)
+    App(root, at_login=is_login_start(sys.argv))
     root.mainloop()
 
 
