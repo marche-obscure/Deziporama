@@ -116,6 +116,23 @@ def _import_json(source: Path, dest_dir: Path) -> ImportResult:
     return ImportResult("imported", source, target)
 
 
+def _is_macos_metadata(name: str) -> bool:
+    """Dossier technique ajouté par le Finder de macOS, sans intérêt pour ComfyUI."""
+    return name.split("/", 1)[0] == "__MACOSX"
+
+
+def _single_root_folder(extracted: Path) -> Path | None:
+    """Le dossier extrait s'il est seul à la racine (aucun fichier à côté), sinon None.
+
+    On regarde le disque plutôt que les noms du zip : Windows corrige certains noms
+    à l'extraction (espace ou point final retiré).
+    """
+    children = list(extracted.iterdir())
+    if len(children) == 1 and children[0].is_dir():
+        return children[0]
+    return None
+
+
 def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> ImportResult:
     if not is_workflow_zip(source):
         return ImportResult("ignored", source, None, "aucun workflow ComfyUI dans l'archive")
@@ -124,9 +141,17 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
     try:
         with zipfile.ZipFile(source) as z:
             _check_entries(z, tmp)
-            z.extractall(tmp)
-        target = unique_path(dest_dir / source.stem)
-        tmp.rename(target)
+            members = [n for n in z.namelist() if not _is_macos_metadata(n)]
+            z.extractall(tmp, members)
+        folder = _single_root_folder(tmp)
+        if folder:
+            # Le zip ne contient qu'un dossier : on le place directement, sans double dossier.
+            target = unique_path(dest_dir / folder.name)
+            folder.rename(target)
+            shutil.rmtree(tmp, ignore_errors=True)
+        else:
+            target = unique_path(dest_dir / source.stem)
+            tmp.rename(target)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise

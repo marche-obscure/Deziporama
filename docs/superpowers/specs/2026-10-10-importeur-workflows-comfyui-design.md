@@ -56,6 +56,8 @@ Ranger automatiquement dans ComfyUI les workflows téléchargés manuellement de
 - Destination effective = `racine\<sous-dossier>` (créée si absente).
 - `.json` : **déplacé** vers la destination.
 - `.zip` : extrait intégralement dans `destination\<nom du zip sans extension>\`, puis zip envoyé à la Corbeille.
+  - Exception (ajout du 2026-10-10) : si la racine du zip ne contient **qu'un seul dossier et aucun fichier**, ce dossier est placé directement dans `destination\<nom du dossier intérieur>\` (pas de double dossier). Exemple : `Ep33 Workflows.zip` → `destination\EP33 Workflows\`.
+  - Le dossier technique macOS `__MACOSX` n'est ni extrait ni pris en compte dans cette règle.
 - Doublons : jamais d'écrasement ; suffixe ` (2)`, ` (3)`… sur le fichier `.json` ou le dossier d'extraction.
 - Extraction sécurisée : toute entrée dont le chemin résolu sort du dossier d'extraction (`..`, chemin absolu, lecteur) est refusée → l'archive entière est rejetée (erreur, rien d'extrait, zip laissé en place).
 - Extraction atomique : extraction dans un dossier temporaire à côté de la destination, puis renommage ; en cas d'erreur, le dossier temporaire est supprimé.

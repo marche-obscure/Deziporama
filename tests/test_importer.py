@@ -259,3 +259,70 @@ def test_zip_too_big_when_extracted_is_error(tmp_path, monkeypatch):
     assert "volumineuse" in r.message
     assert trashed == [] and src.exists()
     assert leftovers(dest) == []
+
+
+# --- Zip contenant un seul dossier à la racine --------------------------------
+
+def test_single_root_folder_is_flattened(tmp_path):
+    src = make_zip(tmp_path / "Ep33 Workflows.zip", {
+        "EP33 Workflows/wf.json": json.dumps(UI),
+        "EP33 Workflows/images/a.png": b"png",
+    })
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.status == "imported"
+    assert r.target == dest / "EP33 Workflows"
+    assert (dest / "EP33 Workflows" / "wf.json").exists()
+    assert (dest / "EP33 Workflows" / "images" / "a.png").exists()
+    assert leftovers(dest) == ["EP33 Workflows"]
+
+
+def test_single_folder_plus_root_file_not_flattened(tmp_path):
+    src = make_zip(tmp_path / "pack.zip", {"Dossier/wf.json": json.dumps(UI), "lisez-moi.txt": "x"})
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target == dest / "pack"
+    assert (dest / "pack" / "Dossier" / "wf.json").exists()
+    assert (dest / "pack" / "lisez-moi.txt").exists()
+
+
+def test_two_root_folders_not_flattened(tmp_path):
+    src = make_zip(tmp_path / "pack.zip", {"A/wf.json": json.dumps(UI), "B/autre.json": json.dumps(UI)})
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target == dest / "pack"
+    assert (dest / "pack" / "A" / "wf.json").exists()
+    assert (dest / "pack" / "B" / "autre.json").exists()
+
+
+def test_macosx_folder_ignored_and_not_extracted(tmp_path):
+    src = make_zip(tmp_path / "pack.zip", {
+        "EP33/wf.json": json.dumps(UI),
+        "__MACOSX/EP33/._wf.json": b"mac",
+        "__MACOSX/._EP33": b"mac",
+    })
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target == dest / "EP33"
+    assert (dest / "EP33" / "wf.json").exists()
+    assert not list(dest.rglob("__MACOSX"))
+    assert leftovers(dest) == ["EP33"]
+
+
+def test_flattened_folder_name_collision(tmp_path):
+    dest = tmp_path / "out"
+    (dest / "EP33 Workflows").mkdir(parents=True)
+    src = make_zip(tmp_path / "Ep33 Workflows.zip", {"EP33 Workflows/wf.json": json.dumps(UI)})
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.target == dest / "EP33 Workflows (2)"
+    assert (dest / "EP33 Workflows (2)" / "wf.json").exists()
+
+
+def test_single_root_folder_with_name_sanitized_by_windows(tmp_path):
+    # Windows interdit l'espace final : l'extraction crée « EP33 », pas « EP33 ».
+    src = make_zip(tmp_path / "pack.zip", {"EP33 /wf.json": json.dumps(UI)})
+    dest = tmp_path / "out"
+    r = import_file(src, dest, trash=lambda p: None)
+    assert r.status == "imported", r.message
+    assert r.target == dest / "EP33"
+    assert (dest / "EP33" / "wf.json").exists()
