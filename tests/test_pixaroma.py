@@ -113,6 +113,14 @@ def test_imported_numbers(tmp_path):
     assert pixaroma.imported_numbers(tmp_path) == {1, 12, 120}
 
 
+def test_imported_numbers_includes_direct_subfolders(tmp_path):
+    (tmp_path / "2025" / "Ep04 - Four").mkdir(parents=True)
+    (tmp_path / "2026" / "Ep30 - Thirty").mkdir(parents=True)
+    (tmp_path / "2026" / "deep" / "Ep31 - Too deep").mkdir(parents=True)
+    (tmp_path / "Ep02 - Two").mkdir()
+    assert pixaroma.imported_numbers(tmp_path) == {2, 4, 30}
+
+
 def test_imported_numbers_missing_folder(tmp_path):
     assert pixaroma.imported_numbers(tmp_path / "absent") == set()
 

@@ -550,7 +550,7 @@ def test_switching_language_keeps_root_subfolder(window, tmp_path):
     window.language_var.set("Français")
     assert window.sub_var.get() == "(racine)"
     assert window._dest() == tmp_path
-    assert window.dest_label.cget("text") == f"Destination : {tmp_path}"
+    assert window.dest_label.cget("text") == f"Destination Workflows : {tmp_path}"
 
 
 def test_first_launch_asks_language_then_shortcut(fresh_window, fake_shortcut, saved, monkeypatch):
@@ -623,17 +623,19 @@ def test_gear_button_in_banner(window):
 
 
 def test_summary_shows_destination_and_pixaroma_folder(window, tmp_path):
-    assert window.dest_label.cget("text") == f"Destination: {tmp_path}"
-    assert window.pixaroma_label.cget("text") == "Pixaroma: —"
+    assert window.dest_label.cget("text") == f"Workflows destination: {tmp_path}"
+    assert window.pixaroma_label.cget("text") == "Pixaroma workflows destination: —"
 
 
 def test_apply_settings_updates_and_saves(window, saved, tmp_path):
     (tmp_path / "dl").mkdir()
     window._apply_settings({"watch_dir": str(tmp_path / "dl"), "workflows_root": str(tmp_path),
-                            "subfolder": "Salon", "pixaroma_dir": str(tmp_path / "Pix")})
+                            "subfolder": "Salon", "pixaroma_dir": str(tmp_path / "Pix"),
+                            "pixaroma_subfolder": "2026"})
     assert window._dest() == tmp_path / "Salon"
-    assert window.dest_label.cget("text") == f"Destination: {tmp_path / 'Salon'}"
-    assert window.pixaroma_label.cget("text") == f"Pixaroma: {tmp_path / 'Pix'}"
+    assert window.dest_label.cget("text") == f"Workflows destination: {tmp_path / 'Salon'}"
+    assert window.pixaroma_label.cget("text") == f"Pixaroma workflows destination: {tmp_path / 'Pix' / '2026'}"
+    assert saved[-1]["pixaroma_subfolder"] == "2026"
     assert saved[-1]["subfolder"] == "Salon"
     assert saved[-1]["pixaroma_dir"] == str(tmp_path / "Pix")
     assert saved[-1]["watch_dir"] == str(tmp_path / "dl")
@@ -699,6 +701,7 @@ def test_pixaroma_window_opened_once_and_wired(window, fake_pixaroma_window, sav
     assert len(fake_pixaroma_window.instances) == 1
     w = fake_pixaroma_window.instances[0]
     assert w.pixaroma_dir == tmp_path / "Pix" and w.last_seen == 7
+    assert w.callbacks["scan_dir"] == tmp_path / "Pix"
     w.callbacks["on_seen"](12)
     assert saved[-1]["pixaroma_last_seen"] == 12
     w.callbacks["on_message"]("Downloading Ep12…", "ignored")
@@ -755,3 +758,17 @@ def test_startup_check_off_by_default(window, monkeypatch):
     monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: called.append(1) or [])
     window._drain()
     assert called == []
+
+
+def test_pixaroma_subfolder_is_the_import_destination(window, fake_pixaroma_window, tmp_path):
+    window._apply_settings({"watch_dir": window.watch_var.get(), "workflows_root": str(tmp_path),
+                            "subfolder": "", "pixaroma_dir": str(tmp_path / "Pix"),
+                            "pixaroma_subfolder": "2026"})
+    window._open_pixaroma()
+    w = fake_pixaroma_window.instances[0]
+    assert w.pixaroma_dir == tmp_path / "Pix" / "2026"  # where episodes are imported
+    assert w.callbacks["scan_dir"] == tmp_path / "Pix"  # where imported episodes are looked for
+
+
+def test_gear_is_brightly_colored(window):
+    assert window.settings_btn.cget("foreground") == app.GEAR_COLOR

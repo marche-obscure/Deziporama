@@ -38,7 +38,7 @@ def make(tk_root, tmp_path):
 
     def build(fetch=None, last_seen=3):
         w = pixaroma_window.PixaromaWindow(
-            tk_root, tmp_path, last_seen,
+            tk_root, tmp_path / "2026", last_seen, scan_dir=tmp_path,
             fetch=fetch or five_episodes, import_episode=fake_import,
             on_message=lambda text, tag: calls["messages"].append((text, tag)),
             on_result=calls["results"].append, on_seen=calls["seen"].append,
@@ -59,7 +59,7 @@ def rows(w):
 
 
 def test_lists_episodes_newest_first_with_status(make, tmp_path):
-    (tmp_path / "Ep02 - Two").mkdir()
+    (tmp_path / "2025" / "Ep02 - Two").mkdir(parents=True)  # imported earlier, in another subfolder
     w = make(last_seen=3)
     assert [(r[0], r[1], r[5]) for r in rows(w)] == [
         ("5", "Five", "Coming soon"), ("4", "Four", "New"), ("3", "Three", ""),
@@ -91,7 +91,7 @@ def test_import_selected(make, tmp_path):
     assert make.calls["messages"][0] == ("Downloading Ep4 Workflows.zip…", "ignored")
     statuses = {r[0]: r[5] for r in rows(w)}
     assert statuses["4"] == "Imported" and statuses["1"] == "Imported"
-    assert (tmp_path / "Ep04 - Four").is_dir()
+    assert (tmp_path / "2026" / "Ep04 - Four").is_dir()
 
 
 def test_import_without_selection_does_nothing(make):

@@ -17,9 +17,11 @@ def tk_root():
 def values(tmp_path):
     (tmp_path / "wf" / "Salon").mkdir(parents=True)
     (tmp_path / "wf" / ".hidden").mkdir()
+    (tmp_path / "wf" / "Pixaroma" / "2025").mkdir(parents=True)
     (tmp_path / "dl").mkdir()
     return {"watch_dir": str(tmp_path / "dl"), "workflows_root": str(tmp_path / "wf"),
-            "subfolder": "", "pixaroma_dir": str(tmp_path / "wf" / "Pixaroma")}
+            "subfolder": "", "pixaroma_dir": str(tmp_path / "wf" / "Pixaroma"),
+            "pixaroma_subfolder": ""}
 
 
 @pytest.fixture
@@ -48,7 +50,8 @@ def test_shows_current_values(make, values):
 
 def test_subfolder_choices(make, values):
     d = make(values)
-    assert d.subfolder_choices() == ["(root)", "Salon"]
+    assert d.subfolder_choices() == ["(root)", "Pixaroma", "Salon"]
+    assert d.pixaroma_subfolder_choices() == ["(root)", "2025"]
 
 
 def test_ok_saves_values(make, values, tmp_path):
@@ -105,3 +108,19 @@ def test_texts_follow_language(make, values):
     d = make(values)
     assert d.window.title() == "Einstellungen"
     assert d.sub_var.get() == "(Stammordner)"
+
+
+def test_pixaroma_subfolder_saved(make, values):
+    d = make(values)
+    assert d.pixaroma_sub_var.get() == "(root)"
+    d.pixaroma_sub_var.set("2025")
+    d.ok()
+    assert make.saved[0]["pixaroma_subfolder"] == "2025"
+
+
+def test_create_pixaroma_subfolder(make, values, tmp_path):
+    d = make(values)
+    assert d.create_subfolder("2026", pixaroma=True) is None
+    assert (tmp_path / "wf" / "Pixaroma" / "2026").is_dir()
+    assert d.pixaroma_sub_var.get() == "2026"
+    assert d.sub_var.get() == "(root)"

@@ -39,26 +39,27 @@ class SettingsDialog:
         self.root_var = tk.StringVar(value=values["workflows_root"])
         self.sub_var = tk.StringVar(value=values["subfolder"] or t("root_label"))
         self.pixaroma_var = tk.StringVar(value=values["pixaroma_dir"])
+        self.pixaroma_sub_var = tk.StringVar(value=values.get("pixaroma_subfolder") or t("root_label"))
 
         self.watch_entry, self.watch_btn = self._folder_row(frame, 0, "watched_folder", self.watch_var)
         self.root_entry, self.root_btn = self._folder_row(frame, 1, "workflows_folder", self.root_var)
-        ttk.Label(frame, text=t("subfolder")).grid(row=2, column=0, sticky="w", pady=3)
-        self.sub_combo = ttk.Combobox(frame, textvariable=self.sub_var, state="readonly",
-                                      postcommand=self._refresh_subfolders)
-        self.sub_combo.grid(row=2, column=1, sticky="ew", pady=3)
-        ttk.Button(frame, text=t("new"), command=self._ask_new_subfolder).grid(row=2, column=2, padx=(5, 0))
-        self.pixaroma_entry, self.pixaroma_btn = self._folder_row(frame, 3, "pixaroma_folder", self.pixaroma_var)
+        self.sub_combo = self._subfolder_row(frame, 2, "subfolder", self.sub_var, pixaroma=False)
+        ttk.Separator(frame).grid(row=3, column=0, columnspan=3, sticky="ew", pady=8)
+        self.pixaroma_entry, self.pixaroma_btn = self._folder_row(frame, 4, "pixaroma_folder", self.pixaroma_var)
+        self.pixaroma_sub_combo = self._subfolder_row(frame, 5, "pixaroma_subfolder",
+                                                      self.pixaroma_sub_var, pixaroma=True)
 
         if running:  # the watcher uses these two folders: they cannot change while it runs
             for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
                 widget.configure(state="disabled")
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=4, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        buttons.grid(row=6, column=0, columnspan=3, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text=t("ok"), command=self.ok).pack(side="left", padx=3)
         ttk.Button(buttons, text=t("cancel"), command=self.cancel).pack(side="left", padx=3)
 
         self.root_var.trace_add("write", lambda *_: self._refresh_subfolders())
+        self.pixaroma_var.trace_add("write", lambda *_: self._refresh_subfolders())
         self._refresh_subfolders()
         self.window.protocol("WM_DELETE_WINDOW", self.cancel)
         self.window.bind("<Escape>", lambda e: self.cancel())
@@ -80,48 +81,70 @@ class SettingsDialog:
 
     # --- Subfolders -----------------------------------------------------------
 
-    def subfolder_choices(self) -> list[str]:
-        root = Path(self.root_var.get())
+    def _subfolder_row(self, frame, row, key, var, pixaroma: bool):
+        ttk.Label(frame, text=t(key)).grid(row=row, column=0, sticky="w", pady=3)
+        combo = ttk.Combobox(frame, textvariable=var, state="readonly", postcommand=self._refresh_subfolders)
+        combo.grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Button(frame, text=t("new"), command=lambda: self._ask_new_subfolder(pixaroma)).grid(
+            row=row, column=2, padx=(5, 0))
+        return combo
+
+    @staticmethod
+    def _choices(folder: str) -> list[str]:
         try:
-            names = sorted((p.name for p in root.iterdir()
+            names = sorted((p.name for p in Path(folder).iterdir()
                             if p.is_dir() and not p.name.startswith(".")), key=str.lower)
         except OSError:
             names = []
         return [t("root_label"), *names]
 
+    def subfolder_choices(self) -> list[str]:
+        return self._choices(self.root_var.get())
+
+    def pixaroma_subfolder_choices(self) -> list[str]:
+        return self._choices(self.pixaroma_var.get()) if self.pixaroma_var.get() else [t("root_label")]
+
     def _refresh_subfolders(self) -> None:
         self.sub_combo["values"] = self.subfolder_choices()
+        self.pixaroma_sub_combo["values"] = self.pixaroma_subfolder_choices()
 
-    def create_subfolder(self, name: str) -> str | None:
-        """Creates and selects the subfolder; returns an error message, or None on success."""
+    def create_subfolder(self, name: str, pixaroma: bool = False) -> str | None:
+        """Creates and selects a subfolder of the workflows folder (or of the Pixaroma folder);
+        returns an error message, or None on success."""
         if not valid_subfolder_name(name):
             return t("invalid_name_message")
         name = name.strip()
+        base, var = (self.pixaroma_var, self.pixaroma_sub_var) if pixaroma else (self.root_var, self.sub_var)
+        if not base.get():
+            return t("cannot_create_folder", error=t("pixaroma_folder"))
         try:
-            (Path(self.root_var.get()) / name).mkdir(parents=True, exist_ok=True)
+            (Path(base.get()) / name).mkdir(parents=True, exist_ok=True)
         except OSError as e:
             return t("cannot_create_folder", error=e)
         self._refresh_subfolders()
-        self.sub_var.set(name)
+        var.set(name)
         return None
 
-    def _ask_new_subfolder(self) -> None:
+    def _ask_new_subfolder(self, pixaroma: bool) -> None:
         name = simpledialog.askstring(t("new_subfolder_title"), t("new_subfolder_prompt"), parent=self.window)
         if name is None:
             return
-        error = self.create_subfolder(name)
+        error = self.create_subfolder(name, pixaroma)
         if error:
             messagebox.showerror(t("error_title"), error, parent=self.window)
 
     # --- Closing --------------------------------------------------------------
 
     def ok(self) -> None:
-        sub = self.sub_var.get()
+        def subfolder(var):
+            return "" if var.get() in i18n.root_labels() else var.get()
+
         self._on_save(dict(self._values,
                            watch_dir=self.watch_var.get(),
                            workflows_root=self.root_var.get(),
-                           subfolder="" if sub in i18n.root_labels() else sub,
-                           pixaroma_dir=self.pixaroma_var.get()))
+                           subfolder=subfolder(self.sub_var),
+                           pixaroma_dir=self.pixaroma_var.get(),
+                           pixaroma_subfolder=subfolder(self.pixaroma_sub_var)))
         self.window.destroy()
 
     def cancel(self) -> None:

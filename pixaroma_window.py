@@ -34,12 +34,14 @@ class PixaromaWindow:
     read on the Tk thread (process_queue), so Tkinter is only touched from the Tk thread."""
 
     def __init__(self, parent, pixaroma_dir: Path, last_seen: int, *,
+                 scan_dir: Path | None = None,
                  fetch: Callable[[], list] = pixaroma.fetch_episodes,
                  import_episode: Callable[[pixaroma.Episode, Path], ImportResult] = pixaroma.import_episode,
                  on_message: Callable[[str, str], None], on_result: Callable[[ImportResult], None],
                  on_seen: Callable[[int], None],
                  run_background: Callable[[Callable[[], None]], None] = _in_thread) -> None:
-        self.pixaroma_dir = Path(pixaroma_dir)
+        self.pixaroma_dir = Path(pixaroma_dir)  # where episodes are imported
+        self.scan_dir = Path(scan_dir or pixaroma_dir)  # where imported episodes are looked for
         self.last_seen = last_seen
         self._fetch, self._import = fetch, import_episode
         self._on_message, self._on_result, self._on_seen = on_message, on_result, on_seen
@@ -158,7 +160,7 @@ class PixaromaWindow:
     def _show_rows(self) -> None:
         selection = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
-        imported = pixaroma.imported_numbers(self.pixaroma_dir)
+        imported = pixaroma.imported_numbers(self.scan_dir)
         category = self.category_var.get()
         for ep in self.episodes:
             if category != t("pixaroma_all_categories") and ep.category != category:

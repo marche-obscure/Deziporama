@@ -35,10 +35,12 @@ DEFAULTS = {
     "desktop_shortcut_asked": False,
     "language": "",  # empty until the user has chosen one
     "pixaroma_dir": "",
+    "pixaroma_subfolder": "",
     "pixaroma_check_at_start": False,
     "pixaroma_last_seen": 0,  # highest episode number already shown to the user
 }
 HEALTH_CHECK_MS = 2000
+GEAR_COLOR = "#ff8a1f"  # logo orange: stands out on the dark banner
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -138,6 +140,7 @@ class App:
         self.root_var = tk.StringVar(value=self.cfg["workflows_root"])
         self.sub_var = tk.StringVar(value=self.cfg["subfolder"] or t("root_label"))
         self.pixaroma_var = tk.StringVar(value=self.cfg["pixaroma_dir"])
+        self.pixaroma_sub_var = tk.StringVar(value=self.cfg["pixaroma_subfolder"] or t("root_label"))
         self.existing_var = tk.BooleanVar(value=self.cfg["process_existing"])
         self.pixaroma_check_var = tk.BooleanVar(value=self.cfg["pixaroma_check_at_start"])
 
@@ -181,7 +184,7 @@ class App:
         self.log.tag_configure("error", foreground="#cf222e")
         self.log.tag_configure("warn", foreground="#b35900")
 
-        for var in (self.watch_var, self.root_var, self.sub_var, self.pixaroma_var,
+        for var in (self.watch_var, self.root_var, self.sub_var, self.pixaroma_var, self.pixaroma_sub_var,
                     self.existing_var, self.pixaroma_check_var):
             var.trace_add("write", lambda *_: self._save())
         self._update_summary()
@@ -237,9 +240,10 @@ class App:
                       activeforeground="white")
         corner = tk.Frame(band, background=logo.BANNER_BACKGROUND)
         corner.place(relx=1.0, x=-10, y=10, anchor="ne")
-        self.settings_btn = tk.Button(corner, text="⚙", command=self._open_settings, font=("Segoe UI Symbol", 11),
-                                      highlightthickness=0, borderwidth=0, relief="flat", cursor="hand2",
-                                      padx=6, **colors)
+        self.settings_btn = tk.Button(corner, text="⚙", command=self._open_settings,
+                                      font=("Segoe UI Symbol", 14, "bold"), highlightthickness=0, borderwidth=0,
+                                      relief="flat", cursor="hand2", padx=6, pady=0,
+                                      **dict(colors, foreground=GEAR_COLOR, activeforeground=GEAR_COLOR))
         self.settings_btn.pack(side="left", padx=(0, 6))
         self.language_menu_values = list(i18n.LANGUAGES.values())
         self.language_var = tk.StringVar(value=i18n.LANGUAGES[i18n.get_language()])
@@ -269,8 +273,9 @@ class App:
     def _retranslate(self) -> None:
         for widget, key in self._translatable:
             widget.configure(text=t(key))
-        if self.sub_var.get() in i18n.root_labels():
-            self.sub_var.set(t("root_label"))
+        for var in (self.sub_var, self.pixaroma_sub_var):
+            if var.get() in i18n.root_labels():
+                var.set(t("root_label"))
         self._update_summary()
         self._set_running(bool(self.watcher and self.watcher.running))
         self.tray.refresh_menu()
@@ -304,7 +309,8 @@ class App:
             self.pixaroma_window.window.lift()
             return
         self.pixaroma_window = PixaromaWindow(
-            self.root, Path(self.pixaroma_var.get()), self.cfg["pixaroma_last_seen"],
+            self.root, self._pixaroma_dest(), self.cfg["pixaroma_last_seen"],
+            scan_dir=Path(self.pixaroma_var.get()),
             on_message=lambda text, tag: self.messages.put((text, tag)),
             on_result=self.results.put,
             on_seen=self._pixaroma_seen)
@@ -337,7 +343,8 @@ class App:
 
     def _open_settings(self) -> None:
         values = {"watch_dir": self.watch_var.get(), "workflows_root": self.root_var.get(),
-                  "subfolder": self.cfg["subfolder"], "pixaroma_dir": self.pixaroma_var.get()}
+                  "subfolder": self.cfg["subfolder"], "pixaroma_dir": self.pixaroma_var.get(),
+                  "pixaroma_subfolder": self.cfg["pixaroma_subfolder"]}
         running = bool(self.watcher and self.watcher.running)
         SettingsDialog(self.root, values, running, self._apply_settings).run_modal()
 
@@ -346,11 +353,19 @@ class App:
         self.root_var.set(values["workflows_root"])
         self.sub_var.set(values["subfolder"] or t("root_label"))
         self.pixaroma_var.set(values["pixaroma_dir"])
+        self.pixaroma_sub_var.set(values.get("pixaroma_subfolder") or t("root_label"))
         self._update_summary()
+
+    def _pixaroma_dest(self) -> Path:
+        """Pixaroma folder, plus its subfolder unless "(root)" is chosen."""
+        base = Path(self.pixaroma_var.get())
+        sub = self.pixaroma_sub_var.get()
+        return base if sub in i18n.root_labels() or not sub else base / sub
 
     def _update_summary(self) -> None:
         self.dest_label.configure(text=t("destination_summary", path=self._dest()))
-        self.pixaroma_label.configure(text=t("pixaroma_summary", path=self.pixaroma_var.get() or "—"))
+        pixaroma_path = self._pixaroma_dest() if self.pixaroma_var.get() else "—"
+        self.pixaroma_label.configure(text=t("pixaroma_summary", path=pixaroma_path))
 
     def _dest(self) -> Path:
         # Called from the watcher thread: only reads the config, never Tkinter.
@@ -487,6 +502,8 @@ class App:
             "desktop_shortcut_asked": self.cfg.get("desktop_shortcut_asked", False),
             "language": self.cfg.get("language", ""),
             "pixaroma_dir": self.pixaroma_var.get(),
+            "pixaroma_subfolder": "" if self.pixaroma_sub_var.get() in i18n.root_labels()
+            else self.pixaroma_sub_var.get(),
             "pixaroma_check_at_start": self.pixaroma_check_var.get(),
             "pixaroma_last_seen": self.cfg.get("pixaroma_last_seen", 0),
         }

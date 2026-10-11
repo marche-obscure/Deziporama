@@ -88,13 +88,29 @@ def fetch_episodes(base_url: str = BASE_URL) -> list[Episode]:
     return parse_episodes(text)
 
 
-def imported_numbers(folder: Path) -> set[int]:
-    """Numbers of the episodes already present as "Ep## - ..." folders."""
+def _episode_numbers(folder: Path) -> tuple[set[int], list[Path]]:
+    """Episode numbers of the "Ep## - ..." folders in `folder`, and its other subfolders."""
+    numbers, others = set(), []
     try:
-        return {int(m.group(1)) for p in Path(folder).iterdir()
-                if p.is_dir() and (m := _EPISODE_FOLDER.match(p.name))}
+        for p in Path(folder).iterdir():
+            if p.is_dir():
+                m = _EPISODE_FOLDER.match(p.name)
+                if m:
+                    numbers.add(int(m.group(1)))
+                else:
+                    others.append(p)
     except OSError:
-        return set()
+        pass
+    return numbers, others
+
+
+def imported_numbers(folder: Path) -> set[int]:
+    """Episodes already present as "Ep## - ..." folders, in `folder` or one of its direct
+    subfolders (e.g. one subfolder per year)."""
+    numbers, subfolders = _episode_numbers(folder)
+    for sub in subfolders:
+        numbers |= _episode_numbers(sub)[0]
+    return numbers
 
 
 def import_episode(episode: Episode, dest_dir: Path, base_url: str = BASE_URL) -> ImportResult:
