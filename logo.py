@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 LOGO_PATH = Path(__file__).with_name("assets") / "deziporama.webp"
+ICO_PATH = LOGO_PATH.with_name("deziporama.ico")  # generated from the logo, not versioned
 # Areas of the original logo (2000 x 2000 px).
 ICON_BOX = (60, 660, 760, 1360)       # "DEZ" with the green slider: readable at 16-32 px
 BANNER_BOX = (40, 560, 1960, 1320)    # the whole word and the zipper

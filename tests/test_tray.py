@@ -18,10 +18,6 @@ def test_menu_actions_call_callbacks():
     assert calls == ["show", "pixaroma", "quit"]
 
 
-def test_notify_before_icon_shown_is_ignored():
-    t = tray.TrayIcon(on_show=lambda: None, on_quit=lambda: None)
-    t.notify("hello")  # the icon is not displayed yet: nothing to notify through, no error
-
 
 def test_tooltip():
     t = tray.TrayIcon(on_show=lambda: None, on_quit=lambda: None)

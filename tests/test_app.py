@@ -19,7 +19,6 @@ def tk_root():
 class FakeTray:
     def __init__(self, on_show, on_quit, on_pixaroma=None):
         self.on_show, self.on_quit, self.on_pixaroma = on_show, on_quit, on_pixaroma
-        self.notifications = []
         self.visible = False
         self.stopped = False
         self.tooltip = ""
@@ -38,9 +37,6 @@ class FakeTray:
 
     def stop(self):
         self.stopped = True
-
-    def notify(self, text):
-        self.notifications.append(text)
 
 
 class FakeAutostart:
@@ -921,7 +917,7 @@ def test_tray_pixaroma_downloads_new_episodes_without_window(tray_pixaroma, save
     assert "Ep06 - T6" in w.questions[0] and "Ep05 - T5" in w.questions[0]
     assert "Ep04" not in w.questions[0]  # already imported
     assert [n for n, _ in w.imported] == [6, 5]
-    assert w.tray.notifications[-1] == "2 Pixaroma episode(s) imported."
+    assert w.questions[-1] == "2 Pixaroma episode(s) imported."  # shown in a dialog with OK
     assert saved[-1]["pixaroma_last_seen"] == 6
     assert w.root.state() == "withdrawn"  # the main window stayed hidden
 
@@ -938,8 +934,8 @@ def test_tray_pixaroma_nothing_new(tray_pixaroma):
     w = tray_pixaroma
     w.cfg["pixaroma_last_seen"] = 6
     run_tray_pixaroma(w)
-    assert w.questions == []
-    assert w.tray.notifications[-1] == "Pixaroma: no new episode."
+    assert w.questions == ["Pixaroma: no new episode."]  # a dialog the user cannot miss
+    assert "Pixaroma: no new episode." in w.log.get("1.0", "end")
 
 
 def test_tray_pixaroma_without_folder(tray_pixaroma):
@@ -947,4 +943,4 @@ def test_tray_pixaroma_without_folder(tray_pixaroma):
     w.pixaroma_var.set("")
     run_tray_pixaroma(w)
     assert w.imported == []
-    assert w.tray.notifications[-1] == "Error: choose the Pixaroma folder in the settings first."
+    assert w.questions == ["Error: choose the Pixaroma folder in the settings first."]

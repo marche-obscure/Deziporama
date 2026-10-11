@@ -56,11 +56,6 @@ class TrayIcon:
         if self._started:
             self.icon.update_menu()
 
-    def notify(self, text: str) -> None:
-        """Windows notification next to the clock; ignored while the icon is not displayed."""
-        if self._started:
-            self.icon.notify(text, TITLE)
-
     def stop(self) -> None:
         if self._started:
             self.icon.stop()

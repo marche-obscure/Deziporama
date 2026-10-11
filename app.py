@@ -23,7 +23,7 @@ from importer import ImportResult
 from pixaroma_window import PixaromaWindow
 from settings_dialog import SettingsDialog, valid_subfolder_name  # noqa: F401 (re-exported)
 from tray import TITLE, TrayIcon
-from ui import center_on_screen
+from ui import apply_app_icon, center_on_screen, set_app_id
 from watcher import FolderWatcher
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
@@ -219,13 +219,8 @@ class App:
         return widget
 
     def _set_window_icon(self) -> list:
-        """Title bar and taskbar icon (the images must stay referenced)."""
-        images = [logo.icon_image(size) for size in (64, 32, 16)]
-        if any(img is None for img in images):
-            return []
-        photos = [ImageTk.PhotoImage(img, master=self.root) for img in images]
-        self.root.iconphoto(True, *photos)  # True: dialogs get the icon too
-        return photos
+        """Title bar and taskbar icon, also the default for dialogs (images kept referenced)."""
+        return apply_app_icon(self.root, logo.ICO_PATH)
 
     def _build_banner(self):
         """Dark banner with the logo (if its file exists) and the language selector."""
@@ -333,9 +328,10 @@ class App:
     # Tray "Pixaroma" command: check, then download the new episodes without opening the window.
 
     def _tell(self, text: str, tag: str) -> None:
-        """Message in the log and as a Windows notification (the window may be hidden)."""
+        """Message in the log and in a centered dialog with OK: unlike a Windows notification,
+        it cannot be missed or hidden by "Do not disturb" (the main window may be hidden)."""
         self._write(text, tag)
-        self.tray.notify(text)
+        choice_dialog(self.root, TITLE, text, [(t("ok"), True)])
 
     def _tray_pixaroma(self) -> None:
         if not self.pixaroma_var.get():
@@ -664,6 +660,7 @@ class App:
 
 def main() -> None:
     at_login = is_login_start(sys.argv)
+    set_app_id()
     init_language(load_config())
     instance = single_instance.SingleInstance()
     if not instance.acquire():
@@ -671,6 +668,7 @@ def main() -> None:
         if not at_login:
             root = tk.Tk()
             root.withdraw()
+            icons = apply_app_icon(root, logo.ICO_PATH)  # noqa: F841 (kept referenced)
             if ask_already_running(root):
                 single_instance.signal_show()
             root.destroy()

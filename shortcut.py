@@ -12,7 +12,7 @@ from i18n import t
 
 SHORTCUT_NAME = "Deziporama.lnk"
 APP_PATH = Path(__file__).with_name("app.py")
-ICO_PATH = Path(__file__).with_name("assets") / "deziporama.ico"
+ICO_PATH = logo.ICO_PATH
 CSIDL_DESKTOPDIRECTORY = 0x10
 
 # Paths go through environment variables: no trouble with quotes or accented characters.

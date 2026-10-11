@@ -51,6 +51,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 - Settings are saved to `config.json` on every change (atomic write; wrong types fall back to defaults).
 - The chosen subfolder is read when each file is handled (no restart needed after changing it).
 - Every dialog is centered on the screen and carries the logo icon.
+- The logo icon (, generated) is the default icon of every window, including dialogs opened while the main window is hidden; the process has its own Windows AppUserModelID so the taskbar shows Deziporama, not Python.
 
 ## Settings (gear icon)
 
@@ -70,7 +71,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 ## Notification area and Windows integration
 
 - Minimize: the window leaves the taskbar and an icon appears in the notification area (click = Show; right-click = Show / Pixaroma / Quit; tooltip = watching state).
-- Tray "Pixaroma": checks the site without opening the window. New episodes (newer than the last one seen and not imported) are listed in a dialog offering Download / Later; Download imports them in the background into the Pixaroma destination and marks them seen. Results are shown as a Windows notification and in the log; "Later" keeps them new.
+- Tray "Pixaroma": checks the site without opening the window. New episodes (newer than the last one seen and not imported) are listed in a dialog offering Download / Later; Download imports them in the background into the Pixaroma destination and marks them seen. Results (imported, no new episode, missing folder, site unreachable) are shown in a centered dialog with OK, which cannot be missed even with Windows "Do not disturb", and in the log; "Later" keeps them new.
 - Close: dialog "Minimize to tray / Quit / Cancel".
 - Start at sign-in: value `ImporteurWorkflowsComfyUI` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (no admin rights), command `pythonw.exe app.py --at-login`. The checkbox state is read from the registry; when enabled, the entry is rewritten on each launch so it always holds the current command. The legacy flag `--demarrage` written by older versions is still recognized.
 - Started with `--at-login`: no window, tray icon shown, watching starts with the last settings.
