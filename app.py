@@ -3,12 +3,11 @@
 import json
 import os
 import queue
-import re
 import sys
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import ttk
 
 from PIL import ImageTk
 
@@ -19,7 +18,9 @@ import shortcut
 import single_instance
 from i18n import t
 from importer import ImportResult
+from settings_dialog import SettingsDialog, valid_subfolder_name  # noqa: F401 (re-exported)
 from tray import TITLE, TrayIcon
+from ui import center_on_screen
 from watcher import FolderWatcher
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
@@ -30,15 +31,11 @@ DEFAULTS = {
     "process_existing": False,
     "desktop_shortcut_asked": False,
     "language": "",  # empty until the user has chosen one
+    "pixaroma_dir": "",
+    "pixaroma_check_at_start": False,
+    "pixaroma_last_seen": 0,  # highest episode number already shown to the user
 }
 HEALTH_CHECK_MS = 2000
-_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-
-
-def valid_subfolder_name(name: str) -> bool:
-    """A single folder level, inside the workflows root, with a name Windows accepts."""
-    name = name.strip()
-    return bool(name) and not name.startswith(".") and not _FORBIDDEN.search(name)
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -66,15 +63,6 @@ def save_config(cfg: dict, path: Path = CONFIG_PATH) -> None:
 def init_language(cfg: dict) -> None:
     """Saved language, or the Windows language until the user has chosen one."""
     i18n.set_language(cfg.get("language") or i18n.system_language())
-
-
-def center_on_screen(window) -> None:
-    """Centers the window on the screen (Tk would put it in the top-left corner)."""
-    window.update_idletasks()
-    width, height = window.winfo_reqwidth(), window.winfo_reqheight()
-    x = (window.winfo_screenwidth() - width) // 2
-    y = (window.winfo_screenheight() - height) // 2
-    window.geometry(f"+{max(x, 0)}+{max(y, 0)}")
 
 
 def choice_dialog(parent, title: str, message: str, buttons: list[tuple[str, object]]):
@@ -140,22 +128,21 @@ class App:
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
 
+        # Folder settings live in the settings dialog (gear icon); these variables hold them.
         self.watch_var = tk.StringVar(value=self.cfg["watch_dir"])
         self.root_var = tk.StringVar(value=self.cfg["workflows_root"])
         self.sub_var = tk.StringVar(value=self.cfg["subfolder"] or t("root_label"))
+        self.pixaroma_var = tk.StringVar(value=self.cfg["pixaroma_dir"])
         self.existing_var = tk.BooleanVar(value=self.cfg["process_existing"])
+        self.pixaroma_check_var = tk.BooleanVar(value=self.cfg["pixaroma_check_at_start"])
 
-        self.watch_entry, self.watch_btn = self._folder_row(frame, 0, "watched_folder", self.watch_var)
-        self.root_entry, self.root_btn = self._folder_row(frame, 1, "workflows_folder", self.root_var)
-
-        self._tr(ttk.Label(frame), "subfolder").grid(row=2, column=0, sticky="w", pady=3)
-        self.sub_combo = ttk.Combobox(frame, textvariable=self.sub_var, state="readonly",
-                                      postcommand=self._refresh_subfolders)
-        self.sub_combo.grid(row=2, column=1, sticky="ew", pady=3)
-        self._tr(ttk.Button(frame, command=self._new_subfolder), "new").grid(row=2, column=2, padx=(5, 0))
+        self.dest_label = ttk.Label(frame)
+        self.dest_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 2))
+        self.pixaroma_label = ttk.Label(frame)
+        self.pixaroma_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 6))
 
         self._tr(ttk.Checkbutton(frame, variable=self.existing_var), "process_existing").grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=3)
+            row=2, column=0, columnspan=3, sticky="w", pady=3)
         try:
             enabled = autostart.is_enabled()
             if enabled:
@@ -164,8 +151,10 @@ class App:
             enabled = False
         self.autostart_var = tk.BooleanVar(value=enabled)
         self._tr(ttk.Checkbutton(frame, variable=self.autostart_var), "autostart").grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=3)
+            row=3, column=0, columnspan=3, sticky="w", pady=3)
         self.autostart_var.trace_add("write", lambda *_: self._apply_autostart())
+        self._tr(ttk.Checkbutton(frame, variable=self.pixaroma_check_var), "pixaroma_check_at_start").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=3)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=6)
@@ -185,9 +174,10 @@ class App:
         self.log.tag_configure("error", foreground="#cf222e")
         self.log.tag_configure("warn", foreground="#b35900")
 
-        for var in (self.watch_var, self.root_var, self.sub_var, self.existing_var):
+        for var in (self.watch_var, self.root_var, self.sub_var, self.pixaroma_var,
+                    self.existing_var, self.pixaroma_check_var):
             var.trace_add("write", lambda *_: self._save())
-        self._refresh_subfolders()
+        self._update_summary()
         root.protocol("WM_DELETE_WINDOW", self._close)
         root.bind("<Unmap>", self._on_unmap)
         self._schedule(200, self._drain)
@@ -233,30 +223,22 @@ class App:
         return label
 
     def _build_language_selector(self, band) -> None:
-        self.language_menu_values = list(i18n.LANGUAGES.values())
-        self.language_var = tk.StringVar(value=i18n.LANGUAGES[i18n.get_language()])
-        menu = tk.OptionMenu(band, self.language_var, *self.language_menu_values)
+        """Top-right corner of the banner: settings (gear) and language selector."""
         colors = dict(background="#2b2a31", foreground="white", activebackground="#3d3c45",
                       activeforeground="white")
+        corner = tk.Frame(band, background=logo.BANNER_BACKGROUND)
+        corner.place(relx=1.0, x=-10, y=10, anchor="ne")
+        self.settings_btn = tk.Button(corner, text="⚙", command=self._open_settings, font=("Segoe UI Symbol", 11),
+                                      highlightthickness=0, borderwidth=0, relief="flat", cursor="hand2",
+                                      padx=6, **colors)
+        self.settings_btn.pack(side="left", padx=(0, 6))
+        self.language_menu_values = list(i18n.LANGUAGES.values())
+        self.language_var = tk.StringVar(value=i18n.LANGUAGES[i18n.get_language()])
+        menu = tk.OptionMenu(corner, self.language_var, *self.language_menu_values)
         menu.configure(highlightthickness=0, borderwidth=0, relief="flat", cursor="hand2", **colors)
         menu["menu"].configure(**colors)
-        menu.place(relx=1.0, x=-10, y=10, anchor="ne")
+        menu.pack(side="left")
         self.language_var.trace_add("write", lambda *_: self._on_language_selected())
-
-    def _folder_row(self, frame, row, key, var):
-        self._tr(ttk.Label(frame), key).grid(row=row, column=0, sticky="w", pady=3)
-        entry = ttk.Entry(frame, textvariable=var)
-        entry.grid(row=row, column=1, sticky="ew", pady=3)
-
-        def browse():
-            chosen = filedialog.askdirectory(initialdir=var.get() or None)
-            if chosen:
-                var.set(str(Path(chosen)))
-                self._refresh_subfolders()
-
-        button = self._tr(ttk.Button(frame, command=browse), "browse")
-        button.grid(row=row, column=2, padx=(5, 0))
-        return entry, button
 
     # --- Languages ------------------------------------------------------------
 
@@ -280,7 +262,7 @@ class App:
             widget.configure(text=t(key))
         if self.sub_var.get() in i18n.root_labels():
             self.sub_var.set(t("root_label"))
-        self._refresh_subfolders()
+        self._update_summary()
         self._set_running(bool(self.watcher and self.watcher.running))
         self.tray.refresh_menu()
 
@@ -299,32 +281,24 @@ class App:
         if self._should_offer_shortcut():
             self._offer_shortcut()
 
-    # --- Subfolders -----------------------------------------------------------
+    # --- Settings -------------------------------------------------------------
 
-    def _refresh_subfolders(self) -> None:
-        root = Path(self.root_var.get())
-        try:
-            names = sorted((p.name for p in root.iterdir()
-                            if p.is_dir() and not p.name.startswith(".")), key=str.lower)
-        except OSError:
-            names = []
-        self.sub_combo["values"] = [t("root_label"), *names]
+    def _open_settings(self) -> None:
+        values = {"watch_dir": self.watch_var.get(), "workflows_root": self.root_var.get(),
+                  "subfolder": self.cfg["subfolder"], "pixaroma_dir": self.pixaroma_var.get()}
+        running = bool(self.watcher and self.watcher.running)
+        SettingsDialog(self.root, values, running, self._apply_settings).run_modal()
 
-    def _new_subfolder(self) -> None:
-        name = simpledialog.askstring(t("new_subfolder_title"), t("new_subfolder_prompt"), parent=self.root)
-        if name is None:
-            return
-        if not valid_subfolder_name(name):
-            messagebox.showerror(t("invalid_name_title"), t("invalid_name_message"), parent=self.root)
-            return
-        name = name.strip()
-        try:
-            (Path(self.root_var.get()) / name).mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            messagebox.showerror(t("error_title"), t("cannot_create_folder", error=e), parent=self.root)
-            return
-        self._refresh_subfolders()
-        self.sub_var.set(name)
+    def _apply_settings(self, values: dict) -> None:
+        self.watch_var.set(values["watch_dir"])
+        self.root_var.set(values["workflows_root"])
+        self.sub_var.set(values["subfolder"] or t("root_label"))
+        self.pixaroma_var.set(values["pixaroma_dir"])
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        self.dest_label.configure(text=t("destination_summary", path=self._dest()))
+        self.pixaroma_label.configure(text=t("pixaroma_summary", path=self.pixaroma_var.get() or "—"))
 
     def _dest(self) -> Path:
         # Called from the watcher thread: only reads the config, never Tkinter.
@@ -405,9 +379,6 @@ class App:
             self._create_shortcut()
 
     def _set_running(self, running: bool) -> None:
-        state = "disabled" if running else "normal"
-        for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
-            widget.configure(state=state)
         self.toggle_btn.configure(text=t("stop") if running else t("start"))
         self.tray.set_tooltip(t("tooltip_active" if running else "tooltip_stopped", title=TITLE))
         self._update_retry()
@@ -457,7 +428,11 @@ class App:
             "process_existing": self.existing_var.get(),
             "desktop_shortcut_asked": self.cfg.get("desktop_shortcut_asked", False),
             "language": self.cfg.get("language", ""),
+            "pixaroma_dir": self.pixaroma_var.get(),
+            "pixaroma_check_at_start": self.pixaroma_check_var.get(),
+            "pixaroma_last_seen": self.cfg.get("pixaroma_last_seen", 0),
         }
+        self._update_summary()
         try:
             save_config(self.cfg)
         except OSError as e:

@@ -550,7 +550,7 @@ def test_switching_language_keeps_root_subfolder(window, tmp_path):
     window.language_var.set("Français")
     assert window.sub_var.get() == "(racine)"
     assert window._dest() == tmp_path
-    assert "(racine)" in window.sub_combo["values"]
+    assert window.dest_label.cget("text") == f"Destination : {tmp_path}"
 
 
 def test_first_launch_asks_language_then_shortcut(fresh_window, fake_shortcut, saved, monkeypatch):
@@ -614,3 +614,50 @@ def test_already_running_dialog_in_current_language(tk_root):
         assert "Laufendes Fenster anzeigen" in texts
     finally:
         top.destroy()
+
+
+# --- Settings (gear icon) ---------------------------------------------------------
+
+def test_gear_button_in_banner(window):
+    assert window.settings_btn.cget("text") == "⚙"
+
+
+def test_summary_shows_destination_and_pixaroma_folder(window, tmp_path):
+    assert window.dest_label.cget("text") == f"Destination: {tmp_path}"
+    assert window.pixaroma_label.cget("text") == "Pixaroma: —"
+
+
+def test_apply_settings_updates_and_saves(window, saved, tmp_path):
+    (tmp_path / "dl").mkdir()
+    window._apply_settings({"watch_dir": str(tmp_path / "dl"), "workflows_root": str(tmp_path),
+                            "subfolder": "Salon", "pixaroma_dir": str(tmp_path / "Pix")})
+    assert window._dest() == tmp_path / "Salon"
+    assert window.dest_label.cget("text") == f"Destination: {tmp_path / 'Salon'}"
+    assert window.pixaroma_label.cget("text") == f"Pixaroma: {tmp_path / 'Pix'}"
+    assert saved[-1]["subfolder"] == "Salon"
+    assert saved[-1]["pixaroma_dir"] == str(tmp_path / "Pix")
+    assert saved[-1]["watch_dir"] == str(tmp_path / "dl")
+
+
+def test_open_settings_passes_current_values(window, monkeypatch, tmp_path):
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, parent, values, running, on_save):
+            opened.append((values, running))
+            self.on_save = on_save
+
+        def run_modal(self):
+            self.on_save(dict(opened[0][0], subfolder="Salon"))
+
+    monkeypatch.setattr(app, "SettingsDialog", FakeDialog)
+    window._open_settings()
+    values, running = opened[0]
+    assert values["workflows_root"] == str(tmp_path)
+    assert running is False
+    assert window.cfg["subfolder"] == "Salon"
+
+
+def test_pixaroma_check_checkbox_saved(window, saved):
+    window.pixaroma_check_var.set(True)
+    assert saved[-1]["pixaroma_check_at_start"] is True
