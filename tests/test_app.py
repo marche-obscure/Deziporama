@@ -645,7 +645,7 @@ def test_open_settings_passes_current_values(window, monkeypatch, tmp_path):
     opened = []
 
     class FakeDialog:
-        def __init__(self, parent, values, running, on_save):
+        def __init__(self, parent, values, running, on_save, on_stop=None):
             opened.append((values, running))
             self.on_save = on_save
 
@@ -772,3 +772,25 @@ def test_pixaroma_subfolder_is_the_import_destination(window, fake_pixaroma_wind
 
 def test_gear_is_brightly_colored(window):
     assert window.settings_btn.cget("foreground") == app.GEAR_COLOR
+
+
+def test_settings_can_stop_watching(window, monkeypatch, tmp_path):
+    (tmp_path / "dl").mkdir()
+    window.watch_var.set(str(tmp_path / "dl"))
+    window._toggle()
+    assert window.watcher.running
+    received = []
+
+    class FakeDialog:
+        def __init__(self, parent, values, running, on_save, on_stop=None):
+            received.append(running)
+            self.on_stop = on_stop
+
+        def run_modal(self):
+            self.on_stop()
+
+    monkeypatch.setattr(app, "SettingsDialog", FakeDialog)
+    window._open_settings()
+    assert received == [True]
+    assert not window.watcher.running
+    assert window.toggle_btn.cget("text") == "Start"

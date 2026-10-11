@@ -346,7 +346,12 @@ class App:
                   "subfolder": self.cfg["subfolder"], "pixaroma_dir": self.pixaroma_var.get(),
                   "pixaroma_subfolder": self.cfg["pixaroma_subfolder"]}
         running = bool(self.watcher and self.watcher.running)
-        SettingsDialog(self.root, values, running, self._apply_settings).run_modal()
+        SettingsDialog(self.root, values, running, self._apply_settings,
+                       on_stop=self._stop_watching).run_modal()
+
+    def _stop_watching(self) -> None:
+        if self.watcher and self.watcher.running:
+            self._toggle()
 
     def _apply_settings(self, values: dict) -> None:
         self.watch_var.set(values["watch_dir"])

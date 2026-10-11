@@ -124,3 +124,31 @@ def test_create_pixaroma_subfolder(make, values, tmp_path):
     assert (tmp_path / "wf" / "Pixaroma" / "2026").is_dir()
     assert d.pixaroma_sub_var.get() == "2026"
     assert d.sub_var.get() == "(root)"
+
+
+# --- Watching running -----------------------------------------------------------------
+
+def test_running_notice_with_stop_button(make, values):
+    d = make(values, running=True)
+    assert d.running_notice is not None
+    assert d.running_notice_label.cget("text").startswith("Watching is running")
+    assert d.stop_btn.cget("text") == "Stop watching"
+
+
+def test_no_notice_when_not_running(make, values):
+    d = make(values)
+    assert d.running_notice is None
+
+
+def test_stop_watching_unlocks_folders_and_keeps_dialog_open(tk_root, values):
+    stopped = []
+    d = settings_dialog.SettingsDialog(tk_root, values, True, lambda v: None, on_stop=lambda: stopped.append(1))
+    try:
+        d.stop_watching()
+        assert stopped == [1]
+        for widget in (d.watch_entry, d.watch_btn, d.root_entry, d.root_btn):
+            assert str(widget.cget("state")) == "normal"
+        assert not d.running_notice.winfo_exists()
+        assert d.window.winfo_exists()
+    finally:
+        d.window.destroy()

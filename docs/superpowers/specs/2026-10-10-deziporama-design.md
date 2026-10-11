@@ -56,6 +56,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 
 - Watched folder, workflows folder, subfolder (existing subfolders + "(root)", "New…" button; names leaving the root or invalid for Windows are rejected), Pixaroma folder and Pixaroma subfolder (same choices and "New…" button, relative to the Pixaroma folder).
 - Changes apply only on OK. While watching, the watched and workflows folders are locked; the subfolder and the Pixaroma folder stay editable.
+- While watching, an orange notice at the top of the dialog explains why those two folders are locked, with a "Stop watching" button that stops watching and unlocks them without closing the dialog.
 
 ## Languages
 

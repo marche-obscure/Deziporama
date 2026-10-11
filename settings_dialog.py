@@ -10,6 +10,8 @@ import i18n
 from i18n import t
 from ui import center_on_screen
 
+NOTICE_BACKGROUND = "#fff1e0"
+NOTICE_FOREGROUND = "#8a4500"
 _FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -22,15 +24,18 @@ def valid_subfolder_name(name: str) -> bool:
 class SettingsDialog:
     """Edits a copy of the folder settings; `on_save` receives them only when OK is clicked."""
 
-    def __init__(self, parent, values: dict, running: bool, on_save: Callable[[dict], None]) -> None:
+    def __init__(self, parent, values: dict, running: bool, on_save: Callable[[dict], None],
+                 on_stop: Callable[[], None] | None = None) -> None:
         self._values = dict(values)
         self._on_save = on_save
+        self._on_stop = on_stop
         self.window = tk.Toplevel(parent)
         self.window.title(t("settings_title"))
         self.window.resizable(True, False)
         if parent.winfo_viewable():
             self.window.transient(parent)
 
+        self.running_notice = self._build_running_notice() if running else None
         frame = ttk.Frame(self.window, padding=12)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1, minsize=380)
@@ -50,8 +55,7 @@ class SettingsDialog:
                                                       self.pixaroma_sub_var, pixaroma=True)
 
         if running:  # the watcher uses these two folders: they cannot change while it runs
-            for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
-                widget.configure(state="disabled")
+            self._lock_watched_folders(True)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=6, column=0, columnspan=3, sticky="e", pady=(12, 0))
@@ -146,6 +150,31 @@ class SettingsDialog:
                            pixaroma_dir=self.pixaroma_var.get(),
                            pixaroma_subfolder=subfolder(self.pixaroma_sub_var)))
         self.window.destroy()
+
+    # --- Watching running -----------------------------------------------------
+
+    def _build_running_notice(self):
+        """Orange band explaining why two folders are locked, with a button to stop watching."""
+        band = tk.Frame(self.window, background=NOTICE_BACKGROUND, padx=12, pady=8)
+        band.pack(fill="x")
+        self.running_notice_label = tk.Label(band, text=t("settings_running_notice"), background=NOTICE_BACKGROUND,
+                                             foreground=NOTICE_FOREGROUND, justify="left", anchor="w")
+        self.running_notice_label.pack(side="left", fill="x", expand=True)
+        self.stop_btn = ttk.Button(band, text=t("stop_watching"), command=self.stop_watching)
+        self.stop_btn.pack(side="right", padx=(10, 0))
+        return band
+
+    def _lock_watched_folders(self, locked: bool) -> None:
+        for widget in (self.watch_entry, self.watch_btn, self.root_entry, self.root_btn):
+            widget.configure(state="disabled" if locked else "normal")
+
+    def stop_watching(self) -> None:
+        """Stops watching without leaving the dialog, then unlocks the folders."""
+        if self._on_stop:
+            self._on_stop()
+        self._lock_watched_folders(False)
+        if self.running_notice is not None:
+            self.running_notice.destroy()
 
     def cancel(self) -> None:
         self.window.destroy()
