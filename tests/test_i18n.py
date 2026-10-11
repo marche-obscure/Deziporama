@@ -25,8 +25,9 @@ def test_every_key_translated_with_same_placeholders(code):
 
 
 def test_translations_differ_from_english():
-    same = [k for k, v in i18n.TEXTS["fr"].items() if v == i18n.TEXTS["en"][k]]
-    assert len(same) <= 3, same  # a few words are identical in both languages
+    identical_on_purpose = {"tray_pixaroma", "pixaroma_button", "ok", "col_workflows"}  # names, "OK"
+    same = {k for k, v in i18n.TEXTS["fr"].items() if v == i18n.TEXTS["en"][k]}
+    assert same <= identical_on_purpose, same - identical_on_purpose
 
 
 def test_t_uses_current_language():

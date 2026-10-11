@@ -28,9 +28,11 @@ def make_image() -> Image.Image:
 class TrayIcon:
     """Callbacks are called from the pystray thread, never from Tkinter."""
 
-    def __init__(self, on_show: Callable[[], None], on_quit: Callable[[], None]) -> None:
+    def __init__(self, on_show: Callable[[], None], on_quit: Callable[[], None],
+                 on_pixaroma: Callable[[], None] = lambda: None) -> None:
         menu = pystray.Menu(
             pystray.MenuItem(lambda item: t("tray_show"), lambda icon, item: on_show(), default=True),
+            pystray.MenuItem(lambda item: t("tray_pixaroma"), lambda icon, item: on_pixaroma()),
             pystray.MenuItem(lambda item: t("tray_quit"), lambda icon, item: on_quit()),
         )
         self.icon = pystray.Icon("deziporama", make_image(), TITLE, menu)
@@ -53,6 +55,11 @@ class TrayIcon:
         """Menu texts are evaluated on display; Windows needs a refresh after a language change."""
         if self._started:
             self.icon.update_menu()
+
+    def notify(self, text: str) -> None:
+        """Windows notification next to the clock; ignored while the icon is not displayed."""
+        if self._started:
+            self.icon.notify(text, TITLE)
 
     def stop(self) -> None:
         if self._started:

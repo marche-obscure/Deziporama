@@ -57,6 +57,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 - Watched folder, workflows folder, subfolder (existing subfolders + "(root)", "New…" button; names leaving the root or invalid for Windows are rejected), Pixaroma folder and Pixaroma subfolder (same choices and "New…" button, relative to the Pixaroma folder).
 - Changes apply only on OK. While watching, the watched and workflows folders are locked; the subfolder and the Pixaroma folder stay editable.
 - While watching, an orange notice at the top of the dialog explains why those two folders are locked, with a "Stop watching" button that stops watching and unlocks them without closing the dialog.
+- After OK, if watching was stopped from the dialog: "Restart watching?" (Restart / Not now). If declined after the watched or workflows folder changed, an orange line in the main window says watching stopped because the workflows destination folder changed; it disappears as soon as watching starts again.
 
 ## Languages
 
@@ -68,7 +69,8 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 
 ## Notification area and Windows integration
 
-- Minimize: the window leaves the taskbar and an icon appears in the notification area (click = Show; right-click = Show / Quit; tooltip = watching state).
+- Minimize: the window leaves the taskbar and an icon appears in the notification area (click = Show; right-click = Show / Pixaroma / Quit; tooltip = watching state).
+- Tray "Pixaroma": checks the site without opening the window. New episodes (newer than the last one seen and not imported) are listed in a dialog offering Download / Later; Download imports them in the background into the Pixaroma destination and marks them seen. Results are shown as a Windows notification and in the log; "Later" keeps them new.
 - Close: dialog "Minimize to tray / Quit / Cancel".
 - Start at sign-in: value `ImporteurWorkflowsComfyUI` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (no admin rights), command `pythonw.exe app.py --at-login`. The checkbox state is read from the registry; when enabled, the entry is rewritten on each launch so it always holds the current command. The legacy flag `--demarrage` written by older versions is still recognized.
 - Started with `--at-login`: no window, tray icon shown, watching starts with the last settings.

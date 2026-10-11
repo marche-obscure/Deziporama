@@ -125,7 +125,10 @@ class App:
         self._scheduled: dict[str, str] = {}
         self._translatable: list[tuple[object, str]] = []  # (widget, text key), see _retranslate
         self.tray = TrayIcon(on_show=lambda: self.commands.put("show"),
-                             on_quit=lambda: self.commands.put("quit"))
+                             on_quit=lambda: self.commands.put("quit"),
+                             on_pixaroma=lambda: self.commands.put("pixaroma"))
+        self._stopped_in_settings = False
+        self._settings_saved = False
 
         root.title(TITLE)
         root.minsize(640, 560)
@@ -165,7 +168,12 @@ class App:
             row=4, column=0, columnspan=3, sticky="w", pady=3)
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=6)
+        # Shown only when watching was stopped to change folders and not restarted (see _open_settings).
+        self.stop_notice = ttk.Label(frame, foreground="#b35900")
+        self.stop_notice.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.stop_notice.grid_remove()
+
+        buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=6)
         buttons.columnconfigure(0, weight=1)
         self.toggle_btn = ttk.Button(buttons, command=self._toggle)
         self.toggle_btn.grid(row=0, column=0, sticky="ew")
@@ -177,8 +185,8 @@ class App:
         self.pixaroma_btn.grid(row=0, column=3, padx=(5, 0))
 
         self.log = tk.Text(frame, height=14, state="disabled", wrap="word")
-        self.log.grid(row=6, column=0, columnspan=3, sticky="nsew")
-        frame.rowconfigure(6, weight=1)
+        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        frame.rowconfigure(7, weight=1)
         self.log.tag_configure("ok", foreground="#1a7f37")
         self.log.tag_configure("ignored", foreground="#777777")
         self.log.tag_configure("error", foreground="#cf222e")
@@ -273,6 +281,7 @@ class App:
     def _retranslate(self) -> None:
         for widget, key in self._translatable:
             widget.configure(text=t(key))
+        self.stop_notice.configure(text=t("stop_notice"))
         for var in (self.sub_var, self.pixaroma_sub_var):
             if var.get() in i18n.root_labels():
                 var.set(t("root_label"))
@@ -321,6 +330,54 @@ class App:
             self.cfg["pixaroma_last_seen"] = newest
             self._save()
 
+    # Tray "Pixaroma" command: check, then download the new episodes without opening the window.
+
+    def _tell(self, text: str, tag: str) -> None:
+        """Message in the log and as a Windows notification (the window may be hidden)."""
+        self._write(text, tag)
+        self.tray.notify(text)
+
+    def _tray_pixaroma(self) -> None:
+        if not self.pixaroma_var.get():
+            self._tell(t("log_pixaroma_folder_missing"), "error")
+            return
+
+        def work():
+            try:
+                self.commands.put(("pixaroma_found", pixaroma.fetch_episodes()))
+            except pixaroma.PixaromaError as e:
+                self.commands.put(("pixaroma_failed", t("pixaroma_list_failed", error=e)))
+
+        self._run_background(work)
+
+    def _offer_new_episodes(self, episodes: list) -> None:
+        imported = pixaroma.imported_numbers(Path(self.pixaroma_var.get()))
+        new = [ep for ep in episodes
+               if ep.number > self.cfg["pixaroma_last_seen"] and ep.number not in imported]
+        if not new:
+            self._tell(t("log_pixaroma_up_to_date"), "ignored")
+            return
+        names = "\n".join(ep.folder_name for ep in new)
+        if choice_dialog(self.root, TITLE, t("pixaroma_new_question", count=len(new), names=names),
+                         [(t("download"), True), (t("later"), False)]) is not True:
+            return  # still "new" next time
+        dest = self._pixaroma_dest()
+
+        def work():
+            done = 0
+            for ep in new:
+                self.messages.put((t("log_pixaroma_downloading", name=ep.zip_name), "ignored"))
+                result = pixaroma.import_episode(ep, dest)
+                self.results.put(result)
+                done += result.status == "imported"
+            self.commands.put(("pixaroma_done", done, max(ep.number for ep in new)))
+
+        self._run_background(work)
+
+    def _pixaroma_downloaded(self, done: int, newest: int) -> None:
+        self._pixaroma_seen(newest)
+        self._tell(t("pixaroma_imported_notify", count=done), "ok")
+
     def _check_pixaroma_news(self) -> None:
         last_seen = self.cfg["pixaroma_last_seen"]
 
@@ -346,8 +403,29 @@ class App:
                   "subfolder": self.cfg["subfolder"], "pixaroma_dir": self.pixaroma_var.get(),
                   "pixaroma_subfolder": self.cfg["pixaroma_subfolder"]}
         running = bool(self.watcher and self.watcher.running)
-        SettingsDialog(self.root, values, running, self._apply_settings,
-                       on_stop=self._stop_watching).run_modal()
+        folders_before = (self.watch_var.get(), self.root_var.get())
+        self._stopped_in_settings = self._settings_saved = False
+        SettingsDialog(self.root, values, running, self._save_from_settings,
+                       on_stop=self._stop_from_settings).run_modal()
+        if self._stopped_in_settings and self._settings_saved:
+            folders_changed = folders_before != (self.watch_var.get(), self.root_var.get())
+            if self._ask_restart():
+                self._toggle()
+            elif folders_changed:
+                self.stop_notice.configure(text=t("stop_notice"))
+                self.stop_notice.grid()
+
+    def _save_from_settings(self, values: dict) -> None:
+        self._settings_saved = True
+        self._apply_settings(values)
+
+    def _stop_from_settings(self) -> None:
+        self._stopped_in_settings = True
+        self._stop_watching()
+
+    def _ask_restart(self) -> bool:
+        return choice_dialog(self.root, TITLE, t("restart_question"),
+                             [(t("restart"), True), (t("not_now"), False)]) is True
 
     def _stop_watching(self) -> None:
         if self.watcher and self.watcher.running:
@@ -400,6 +478,7 @@ class App:
             self._write(t("log_cannot_watch", path=watch_dir, error=e), "error")
             return
         self._set_running(True)
+        self.stop_notice.grid_remove()
         self._write(t("log_watching", path=watch_dir), "ignored")
 
     def _retry(self) -> None:
@@ -466,6 +545,14 @@ class App:
             elif command == "quit":
                 self._quit()
                 return
+            elif command == "pixaroma":
+                self._tray_pixaroma()
+            elif command[0] == "pixaroma_found":
+                self._offer_new_episodes(command[1])
+            elif command[0] == "pixaroma_done":
+                self._pixaroma_downloaded(*command[1:])
+            elif command[0] == "pixaroma_failed":
+                self._tell(command[1], "warn")
         while True:
             try:
                 text, tag = self.messages.get_nowait()

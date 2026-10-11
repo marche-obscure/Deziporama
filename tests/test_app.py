@@ -1,5 +1,6 @@
 import threading
 import tkinter as tk
+from pathlib import Path
 
 import pytest
 
@@ -16,8 +17,9 @@ def tk_root():
 
 
 class FakeTray:
-    def __init__(self, on_show, on_quit):
-        self.on_show, self.on_quit = on_show, on_quit
+    def __init__(self, on_show, on_quit, on_pixaroma=None):
+        self.on_show, self.on_quit, self.on_pixaroma = on_show, on_quit, on_pixaroma
+        self.notifications = []
         self.visible = False
         self.stopped = False
         self.tooltip = ""
@@ -36,6 +38,9 @@ class FakeTray:
 
     def stop(self):
         self.stopped = True
+
+    def notify(self, text):
+        self.notifications.append(text)
 
 
 class FakeAutostart:
@@ -794,3 +799,152 @@ def test_settings_can_stop_watching(window, monkeypatch, tmp_path):
     assert received == [True]
     assert not window.watcher.running
     assert window.toggle_btn.cget("text") == "Start"
+
+
+# --- Restart after changing folders -------------------------------------------------
+
+@pytest.fixture
+def watching(window, tmp_path):
+    (tmp_path / "dl").mkdir()
+    window.watch_var.set(str(tmp_path / "dl"))
+    window._toggle()
+    assert window.watcher.running
+    return window
+
+
+def settings_stopping_then_saving(monkeypatch, changes):
+    """Fake settings dialog: the user clicks "Stop watching", changes folders, then OK."""
+
+    class FakeDialog:
+        def __init__(self, parent, values, running, on_save, on_stop=None):
+            self.values, self.on_save, self.on_stop = values, on_save, on_stop
+
+        def run_modal(self):
+            self.on_stop()
+            self.on_save(dict(self.values, **changes))
+
+    monkeypatch.setattr(app, "SettingsDialog", FakeDialog)
+
+
+def test_restart_proposed_and_accepted(watching, monkeypatch, tmp_path):
+    (tmp_path / "other").mkdir()
+    settings_stopping_then_saving(monkeypatch, {"workflows_root": str(tmp_path / "other")})
+    monkeypatch.setattr(watching, "_ask_restart", lambda: True)
+    watching._open_settings()
+    assert watching.watcher.running
+    assert not watching.stop_notice.winfo_ismapped()
+
+
+def test_restart_declined_after_folder_change_shows_notice(watching, monkeypatch, tmp_path):
+    (tmp_path / "other").mkdir()
+    settings_stopping_then_saving(monkeypatch, {"workflows_root": str(tmp_path / "other")})
+    monkeypatch.setattr(watching, "_ask_restart", lambda: False)
+    watching._open_settings()
+    watching.root.update()
+    assert not watching.watcher.running
+    assert watching.stop_notice.winfo_manager() == "grid"
+    assert watching.stop_notice.cget("text") == (
+        "Watching stopped after the workflows destination folder was changed.")
+    watching._toggle()  # watching restarted: the notice goes away
+    assert watching.stop_notice.winfo_manager() == ""
+
+
+def test_restart_declined_without_folder_change_shows_no_notice(watching, monkeypatch):
+    settings_stopping_then_saving(monkeypatch, {})
+    monkeypatch.setattr(watching, "_ask_restart", lambda: False)
+    watching._open_settings()
+    assert watching.stop_notice.winfo_manager() == ""
+
+
+def test_no_restart_question_if_watching_was_not_stopped_in_settings(window, monkeypatch, tmp_path):
+    asked = []
+
+    class FakeDialog:
+        def __init__(self, parent, values, running, on_save, on_stop=None):
+            self.values, self.on_save = values, on_save
+
+        def run_modal(self):
+            self.on_save(dict(self.values, subfolder="Salon"))
+
+    monkeypatch.setattr(app, "SettingsDialog", FakeDialog)
+    monkeypatch.setattr(window, "_ask_restart", lambda: asked.append(1) or False)
+    window._open_settings()
+    assert asked == []
+
+
+def test_notice_hidden_at_start(window):
+    assert window.stop_notice.winfo_manager() == ""
+
+
+# --- Tray "Pixaroma" command ----------------------------------------------------------
+
+@pytest.fixture
+def tray_pixaroma(window, monkeypatch, tmp_path):
+    from tests.test_pixaroma import episode_data, episodes_js
+    window.pixaroma_var.set(str(tmp_path / "Pix"))
+    (tmp_path / "Pix" / "Ep04 - Four").mkdir(parents=True)  # already imported
+    window.cfg["pixaroma_last_seen"] = 3
+    episodes = app.pixaroma.parse_episodes(episodes_js(*(episode_data(n, f"T{n}") for n in (1, 2, 3, 4, 5, 6))))
+    monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: episodes)
+    imported = []
+
+    def fake_import(episode, dest):
+        imported.append((episode.number, Path(dest)))
+        target = Path(dest) / episode.folder_name
+        target.mkdir(parents=True)
+        return app.ImportResult("imported", Path(episode.zip_name), target)
+
+    monkeypatch.setattr(app.pixaroma, "import_episode", fake_import)
+    monkeypatch.setattr(app.App, "_run_background", lambda self, fn: fn())
+    questions = []
+
+    def answer(parent, title, message, buttons):
+        questions.append(message)
+        return answer.reply
+
+    answer.reply = True
+    monkeypatch.setattr(app, "choice_dialog", answer)
+    window.imported, window.questions, window.answer = imported, questions, answer
+    return window
+
+
+def run_tray_pixaroma(w):
+    w.tray.on_pixaroma()  # called from the pystray thread
+    for _ in range(3):
+        w._drain()
+
+
+def test_tray_pixaroma_downloads_new_episodes_without_window(tray_pixaroma, saved, tmp_path):
+    w = tray_pixaroma
+    w._hide_to_tray()
+    run_tray_pixaroma(w)
+    assert "Ep06 - T6" in w.questions[0] and "Ep05 - T5" in w.questions[0]
+    assert "Ep04" not in w.questions[0]  # already imported
+    assert [n for n, _ in w.imported] == [6, 5]
+    assert w.tray.notifications[-1] == "2 Pixaroma episode(s) imported."
+    assert saved[-1]["pixaroma_last_seen"] == 6
+    assert w.root.state() == "withdrawn"  # the main window stayed hidden
+
+
+def test_tray_pixaroma_later_keeps_episodes_new(tray_pixaroma):
+    w = tray_pixaroma
+    w.answer.reply = False
+    run_tray_pixaroma(w)
+    assert w.imported == []
+    assert w.cfg["pixaroma_last_seen"] == 3
+
+
+def test_tray_pixaroma_nothing_new(tray_pixaroma):
+    w = tray_pixaroma
+    w.cfg["pixaroma_last_seen"] = 6
+    run_tray_pixaroma(w)
+    assert w.questions == []
+    assert w.tray.notifications[-1] == "Pixaroma: no new episode."
+
+
+def test_tray_pixaroma_without_folder(tray_pixaroma):
+    w = tray_pixaroma
+    w.pixaroma_var.set("")
+    run_tray_pixaroma(w)
+    assert w.imported == []
+    assert w.tray.notifications[-1] == "Error: choose the Pixaroma folder in the settings first."
