@@ -35,22 +35,27 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 | `single_instance.py` | One copy at a time (named mutex) and "show" signal (named event). | `ctypes` |
 | `shortcut.py` | Desktop shortcut creation (PowerShell / WScript.Shell). | `logo` |
 | `i18n.py` | UI texts in English, French and German; current language; Windows language detection. | `ctypes` |
+| `pixaroma.py` | Pixaroma episode list (`episodes.js`), "Ep## - Title" folder names, download + import of an episode. | `urllib`, `importer` |
+| `pixaroma_window.py` | Window listing the episodes, with status, category filter and import. | `pixaroma` |
+| `settings_dialog.py` | Settings window (gear icon): folders. | Tkinter |
 | `logo.py` | Icon and banner taken from `assets/deziporama.webp`; `.ico` generation. | `Pillow` |
 | `config.json` | Saved settings (created on first launch, not versioned). | — |
 
 ## Window (app.py)
 
-- Logo banner at the top; logo icon in the title bar and taskbar.
-- Field + Browse… button: watched folder.
-- Field + Browse… button: workflows root folder.
-- Drop-down: destination subfolder (existing subfolders of the root + "(root)"), "New…" button to create one (names leaving the root or invalid for Windows are rejected).
-- Checkbox "Also process files already present when starting" (off by default).
-- Checkbox "Start at Windows sign-in (minimized, watching)".
-- Buttons: Start / Stop, "Retry errors" (enabled only when an import failed), "Create desktop shortcut" (disabled when the shortcut exists).
+- Logo banner at the top, with a gear icon (settings) and the language selector in its top-right corner; logo icon in the title bar and taskbar.
+- Two summary lines: "Destination: <workflows root>\<subfolder>" and "Pixaroma: <folder>".
+- Checkboxes: "Also process files already present when starting", "Start at Windows sign-in (minimized, watching)", "Check for new Pixaroma episodes at start".
+- Buttons: Start / Stop, "Retry errors" (enabled only when an import failed), "Create desktop shortcut" (disabled when the shortcut exists), "Pixaroma".
 - Timestamped log: imported in green, ignored in grey, warnings in orange, errors in red.
 - Settings are saved to `config.json` on every change (atomic write; wrong types fall back to defaults).
 - The chosen subfolder is read when each file is handled (no restart needed after changing it).
 - Every dialog is centered on the screen and carries the logo icon.
+
+## Settings (gear icon)
+
+- Watched folder, workflows folder, subfolder (existing subfolders + "(root)", "New…" button; names leaving the root or invalid for Windows are rejected), Pixaroma folder.
+- Changes apply only on OK. While watching, the watched and workflows folders are locked; the subfolder and the Pixaroma folder stay editable.
 
 ## Languages
 
@@ -70,6 +75,15 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
   - offered once on the first manual launch (`desktop_shortcut_asked` in `config.json`), never at sign-in, never if it already exists;
   - the button state is checked when the window opens, when it comes back from the tray and after creation (no periodic check).
 - One copy at a time (named mutex `Local\ImporteurWorkflowsComfyUI`). A second manual launch shows "Show the running one / Cancel" and exits; "Show" brings the running copy's window to the front. A second launch at sign-in exits silently.
+
+## Pixaroma (workflows.pixaroma.com)
+
+- The free episode list is read from `https://workflows.pixaroma.com/episodes.js` (`window.EPISODES = [...]`): number, title, category, download path, size, workflow count, YouTube link, "coming soon" flag. Unexpected content or no network gives a clear message, never a crash.
+- "Pixaroma" button: window listing the episodes newest first (No., Title, Category, Workflows, Size, Status), category filter, Refresh, double-click opens the YouTube video, multi-select + "Import selected".
+- Status: Imported (an "Ep## - " folder exists in the Pixaroma folder), Coming soon (flag set; still importable), New (number above the last episode shown the previous time).
+- Import: download in the background into a temporary folder, then the normal zip import into the Pixaroma folder, the folder being named **"Ep## - Title"** (two-digit number, title case kept, `|` and `:` become " - ", characters forbidden by Windows removed, " (2)" suffix if it already exists). The temporary zip is deleted, not sent to the Recycle Bin. Each step is written to the log.
+- "Check for new Pixaroma episodes at start": one background read of the list at start, logging "N new Pixaroma episode(s): ..." or "no new episode". Episodes stay "new" until the list window has been opened.
+- Requests are made only when the user opens/refreshes the list, imports, or enables the start check. User-Agent: "Deziporama (https://github.com/marche-obscure/Deziporama)".
 
 ## Detection
 

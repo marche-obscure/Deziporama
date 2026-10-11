@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import sys
+import threading
 import time
 import tkinter as tk
 from pathlib import Path
@@ -14,10 +15,12 @@ from PIL import ImageTk
 import autostart
 import i18n
 import logo
+import pixaroma
 import shortcut
 import single_instance
 from i18n import t
 from importer import ImportResult
+from pixaroma_window import PixaromaWindow
 from settings_dialog import SettingsDialog, valid_subfolder_name  # noqa: F401 (re-exported)
 from tray import TITLE, TrayIcon
 from ui import center_on_screen
@@ -114,6 +117,8 @@ class App:
         init_language(self.cfg)
         self.results: queue.Queue = queue.Queue()
         self.commands: queue.Queue = queue.Queue()  # orders coming from the tray icon (other thread)
+        self.messages: queue.Queue = queue.Queue()  # (text, tag) log lines coming from other threads
+        self.pixaroma_window: PixaromaWindow | None = None
         self.watcher: FolderWatcher | None = None
         self._scheduled: dict[str, str] = {}
         self._translatable: list[tuple[object, str]] = []  # (widget, text key), see _retranslate
@@ -165,6 +170,8 @@ class App:
         self.retry_btn.grid(row=0, column=1, padx=(5, 0))
         self.shortcut_btn = self._tr(ttk.Button(buttons, command=self._create_shortcut), "create_shortcut")
         self.shortcut_btn.grid(row=0, column=2, padx=(5, 0))
+        self.pixaroma_btn = self._tr(ttk.Button(buttons, command=self._open_pixaroma), "pixaroma_button")
+        self.pixaroma_btn.grid(row=0, column=3, padx=(5, 0))
 
         self.log = tk.Text(frame, height=14, state="disabled", wrap="word")
         self.log.grid(row=6, column=0, columnspan=3, sticky="nsew")
@@ -184,6 +191,8 @@ class App:
         self._schedule(HEALTH_CHECK_MS, self._check_health)
         self._set_running(False)
         self._update_shortcut_button()
+        if self.cfg["pixaroma_check_at_start"]:
+            self._check_pixaroma_news()
         if at_login:
             self._hide_to_tray()
             self._toggle()
@@ -280,6 +289,49 @@ class App:
             self._ask_language()
         if self._should_offer_shortcut():
             self._offer_shortcut()
+
+    # --- Pixaroma -------------------------------------------------------------
+
+    def _run_background(self, fn) -> None:
+        threading.Thread(target=fn, daemon=True).start()
+
+    def _open_pixaroma(self) -> None:
+        if not self.pixaroma_var.get():
+            self._write(t("log_pixaroma_folder_missing"), "error")
+            return
+        if self.pixaroma_window and self.pixaroma_window.window.winfo_exists():
+            self.pixaroma_window.window.deiconify()
+            self.pixaroma_window.window.lift()
+            return
+        self.pixaroma_window = PixaromaWindow(
+            self.root, Path(self.pixaroma_var.get()), self.cfg["pixaroma_last_seen"],
+            on_message=lambda text, tag: self.messages.put((text, tag)),
+            on_result=self.results.put,
+            on_seen=self._pixaroma_seen)
+
+    def _pixaroma_seen(self, newest: int) -> None:
+        """The list was shown: episodes up to `newest` are no longer "new" next time."""
+        if newest > self.cfg["pixaroma_last_seen"]:
+            self.cfg["pixaroma_last_seen"] = newest
+            self._save()
+
+    def _check_pixaroma_news(self) -> None:
+        last_seen = self.cfg["pixaroma_last_seen"]
+
+        def work():
+            try:
+                episodes = pixaroma.fetch_episodes()
+            except pixaroma.PixaromaError as e:
+                self.messages.put((t("pixaroma_list_failed", error=e), "warn"))
+                return
+            new = [ep.number for ep in episodes if ep.number > last_seen]
+            if new:
+                self.messages.put((t("log_pixaroma_new", count=len(new),
+                                     numbers=", ".join(map(str, new))), "ok"))
+            else:
+                self.messages.put((t("log_pixaroma_up_to_date"), "ignored"))
+
+        self._run_background(work)
 
     # --- Settings -------------------------------------------------------------
 
@@ -394,6 +446,12 @@ class App:
             elif command == "quit":
                 self._quit()
                 return
+        while True:
+            try:
+                text, tag = self.messages.get_nowait()
+            except queue.Empty:
+                break
+            self._write(text, tag)
         while True:
             try:
                 result: ImportResult = self.results.get_nowait()

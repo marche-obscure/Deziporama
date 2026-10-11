@@ -661,3 +661,97 @@ def test_open_settings_passes_current_values(window, monkeypatch, tmp_path):
 def test_pixaroma_check_checkbox_saved(window, saved):
     window.pixaroma_check_var.set(True)
     assert saved[-1]["pixaroma_check_at_start"] is True
+
+
+# --- Pixaroma ---------------------------------------------------------------------
+
+class FakePixaromaWindow:
+    instances = []
+
+    def __init__(self, parent, pixaroma_dir, last_seen, **callbacks):
+        self.pixaroma_dir, self.last_seen, self.callbacks = pixaroma_dir, last_seen, callbacks
+        self.window = tk.Toplevel(parent)
+        FakePixaromaWindow.instances.append(self)
+
+
+@pytest.fixture
+def fake_pixaroma_window(monkeypatch):
+    FakePixaromaWindow.instances = []
+    monkeypatch.setattr(app, "PixaromaWindow", FakePixaromaWindow)
+    return FakePixaromaWindow
+
+
+def test_pixaroma_button(window):
+    assert window.pixaroma_btn.cget("text") == "Pixaroma"
+
+
+def test_pixaroma_without_folder_logs_error(window, fake_pixaroma_window):
+    window._open_pixaroma()
+    assert fake_pixaroma_window.instances == []
+    assert "choose the Pixaroma folder" in window.log.get("1.0", "end")
+
+
+def test_pixaroma_window_opened_once_and_wired(window, fake_pixaroma_window, saved, tmp_path):
+    window.pixaroma_var.set(str(tmp_path / "Pix"))
+    window.cfg["pixaroma_last_seen"] = 7
+    window._open_pixaroma()
+    window._open_pixaroma()  # already open: brought to front, not duplicated
+    assert len(fake_pixaroma_window.instances) == 1
+    w = fake_pixaroma_window.instances[0]
+    assert w.pixaroma_dir == tmp_path / "Pix" and w.last_seen == 7
+    w.callbacks["on_seen"](12)
+    assert saved[-1]["pixaroma_last_seen"] == 12
+    w.callbacks["on_message"]("Downloading Ep12…", "ignored")
+    w.callbacks["on_result"](app.ImportResult("imported", tmp_path / "Ep12.zip", tmp_path / "Pix" / "Ep12 - X"))
+    window._drain()
+    log = window.log.get("1.0", "end")
+    assert "Downloading Ep12…" in log and "Imported: Ep12.zip" in log
+
+
+def test_last_seen_never_goes_back(window, fake_pixaroma_window, tmp_path):
+    window.pixaroma_var.set(str(tmp_path))
+    window.cfg["pixaroma_last_seen"] = 20
+    window._open_pixaroma()
+    fake_pixaroma_window.instances[0].callbacks["on_seen"](12)
+    assert window.cfg["pixaroma_last_seen"] == 20
+
+
+def _episodes(*numbers):
+    from tests.test_pixaroma import episode_data, episodes_js
+    return app.pixaroma.parse_episodes(episodes_js(*(episode_data(n) for n in numbers)))
+
+
+def test_startup_check_reports_new_episodes(tk_root, fakes, monkeypatch):
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(
+        app.DEFAULTS, language="en", pixaroma_check_at_start=True, pixaroma_last_seen=3))
+    monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: _episodes(1, 2, 3, 4, 5))
+    monkeypatch.setattr(app.App, "_run_background", lambda self, fn: fn())
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        a._drain()
+        assert "2 new Pixaroma episode(s): 5, 4" in a.log.get("1.0", "end")
+        assert a.cfg["pixaroma_last_seen"] == 3  # still "new" until the list is opened
+    finally:
+        a._quit()
+
+
+def test_startup_check_up_to_date(tk_root, fakes, monkeypatch):
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(
+        app.DEFAULTS, language="en", pixaroma_check_at_start=True, pixaroma_last_seen=5))
+    monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: _episodes(4, 5))
+    monkeypatch.setattr(app.App, "_run_background", lambda self, fn: fn())
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        a._drain()
+        assert "Pixaroma: no new episode." in a.log.get("1.0", "end")
+    finally:
+        a._quit()
+
+
+def test_startup_check_off_by_default(window, monkeypatch):
+    called = []
+    monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: called.append(1) or [])
+    window._drain()
+    assert called == []

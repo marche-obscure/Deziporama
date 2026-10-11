@@ -20,6 +20,7 @@ Deziporama never connects to Discord. It only watches your Downloads folder, so 
 - **Safe**: archives trying to write outside their folder are rejected, extraction is atomic, and there are size limits.
 - **Stays out of the way**: minimizes to the notification area, can start at Windows sign-in, and only one copy runs at a time.
 - **Desktop shortcut** offered on first launch, or available from a button later.
+- **Pixaroma episodes**: list the free episodes of [workflows.pixaroma.com](https://workflows.pixaroma.com/), see which ones are new or already imported, and import them in one click into folders named `Ep## - Title`.
 - **English, French and German**: chosen on first launch, changeable anytime from the banner.
 
 ## Requirements
@@ -73,9 +74,13 @@ You can change the language later with the selector in the top-right corner of t
 
 ## Usage
 
-1. **Workflows folder**: click *Browse…* and pick your ComfyUI workflows folder, usually `ComfyUI\user\default\workflows`.
-2. **Subfolder**: pick where downloads should go, or click *New…* to create one, for example one per Discord channel.
-3. Click **Start**, then download workflows as usual.
+1. Click the **⚙** icon in the banner to open the settings:
+   - **Watched folder**: your Downloads folder (set by default).
+   - **Workflows folder**: your ComfyUI workflows folder, usually `ComfyUI\user\default\workflows`.
+   - **Subfolder**: where downloads should go; *New…* creates one, for example one per Discord channel.
+   - **Pixaroma folder**: where Pixaroma episodes are imported.
+2. Click **Start**, then download workflows as usual.
+3. Click **Pixaroma** to list the Pixaroma episodes, select some, then click **Import selected**.
 
 The log shows each file:
 
@@ -92,6 +97,7 @@ After fixing an error (for example, a drive that was unplugged), click **Retry e
 
 - **Also process files already present when starting**: imports the workflows already sitting in Downloads when you click Start.
 - **Start at Windows sign-in**: Deziporama starts minimized next to the clock, already watching.
+- **Check for new Pixaroma episodes at start**: a line in the log tells you when new episodes are out.
 - **Minimize** sends the window to the notification area. **Close** asks whether to minimize or quit.
 
 ## Development
