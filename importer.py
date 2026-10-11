@@ -142,7 +142,8 @@ def _single_root_folder(extracted: Path) -> Path | None:
     return None
 
 
-def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> ImportResult:
+def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None],
+                folder_name: str | None = None) -> ImportResult:
     if not is_workflow_zip(source):
         return ImportResult("ignored", source, None, t("msg_no_workflow_in_zip"))
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -155,11 +156,11 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
         folder = _single_root_folder(tmp)
         if folder:
             # The zip only holds one folder: place it directly, without a nested folder.
-            target = unique_path(dest_dir / capitalize_words(folder.name))
+            target = unique_path(dest_dir / (folder_name or capitalize_words(folder.name)))
             folder.rename(target)
             shutil.rmtree(tmp, ignore_errors=True)
         else:
-            target = unique_path(dest_dir / capitalize_words(source.stem))
+            target = unique_path(dest_dir / (folder_name or capitalize_words(source.stem)))
             tmp.rename(target)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -173,15 +174,19 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None]) -> I
 
 
 def import_file(source: Path, dest_dir: Path,
-                trash: Callable[[str], None] = send2trash) -> ImportResult:
-    """Files a downloaded workflow into `dest_dir`. Never raises."""
+                trash: Callable[[str], None] = send2trash,
+                folder_name: str | None = None) -> ImportResult:
+    """Files a downloaded workflow into `dest_dir`. Never raises.
+
+    `folder_name` imposes the name of the folder created for a zip (used as is).
+    """
     source, dest_dir = Path(source), Path(dest_dir)
     try:
         ext = source.suffix.lower()
         if ext == ".json":
             return _import_json(source, dest_dir)
         if ext == ".zip":
-            return _import_zip(source, dest_dir, trash)
+            return _import_zip(source, dest_dir, trash, folder_name)
         return ImportResult("ignored", source, None, t("msg_unsupported"))
     except Exception as e:  # noqa: BLE001 - the caller must never crash
         return ImportResult("error", source, None, str(e) or e.__class__.__name__)
