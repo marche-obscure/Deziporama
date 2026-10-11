@@ -51,7 +51,7 @@ Automatically file into ComfyUI the workflows downloaded by hand from Discord, w
 - Settings are saved to `config.json` on every change (atomic write; wrong types fall back to defaults).
 - The chosen subfolder is read when each file is handled (no restart needed after changing it).
 - Every dialog is centered on the screen and carries the logo icon.
-- The logo icon (, generated) is the default icon of every window, including dialogs opened while the main window is hidden; the process has its own Windows AppUserModelID so the taskbar shows Deziporama, not Python.
+- The logo icon (`assets/deziporama.ico`, generated) is the default icon of every window, including dialogs opened while the main window is hidden; the process has its own Windows AppUserModelID so the taskbar shows Deziporama, not Python.
 
 ## Settings (gear icon)
 
