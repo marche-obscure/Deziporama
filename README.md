@@ -130,6 +130,32 @@ Right-click the Deziporama icon next to the clock, then choose **Pixaroma**. Dez
 
 Choose **Download**, **Later** or **Don't offer again**. While downloading, a small window shows the episode, the step (downloading, then extracting) and a progress bar. When everything is extracted and renamed, a **Pixaroma workflows available** window lists the new folders.
 
+### About the Pixaroma name and content
+
+Deziporama is an **independent, unofficial** project. It is **not affiliated with, endorsed by or sponsored by Pixaroma**.
+
+"Pixaroma" is the name used by its creator for the YouTube channel, the websites ([pixaroma.com](https://pixaroma.com/), [workflows.pixaroma.com](https://workflows.pixaroma.com/)) and the shop, and it may be a trademark of its owner. Deziporama uses it only to say which site it works with.
+
+What applies to the content, as far as the Pixaroma sites state it (October 2026):
+
+- **Workflows and episode files**: offered as free downloads on workflows.pixaroma.com. No license is stated for them, so they remain the property of their author, all rights reserved.
+- **Pixaroma nodes** ([ComfyUI-Pixaroma](https://github.com/pixaroma/ComfyUI-Pixaroma)): MIT license, which allows use, copy, modification and sharing as long as the copyright notice is kept.
+- **Shop**: its [Terms of Service](https://shop.pixaroma.com/pages/terms-of-service) state that its materials belong to the creator and forbid claiming a false affiliation.
+
+Deziporama does not host, copy or redistribute any Pixaroma file. Every ZIP is downloaded from the official site, exactly as when you click *Download* yourself, and only when you ask for it.
+
+**Recommended use:**
+
+- Use the downloaded workflows for your own work.
+- Do not re-upload, share, bundle or sell the workflows or ZIP files without the author's permission.
+- Keep the credits and notices that come with the files.
+- Do not present Deziporama, or anything made with it, as an official Pixaroma product.
+- Support the creator: watch the [videos](https://www.youtube.com/@pixaroma), join the [Discord](https://discord.gg/gggpkVgBf3), or use the [shop and donations](https://shop.pixaroma.com/).
+
+If you are the owner of Pixaroma and want the name, the logo or this feature changed or removed, please [open an issue](https://github.com/marche-obscure/Deziporama/issues). It will be done.
+
+*This section is information, not legal advice.*
+
 ## Development
 
 ```bash
