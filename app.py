@@ -39,6 +39,9 @@ DEFAULTS = {
     "pixaroma_subfolder": "",
     "pixaroma_check_at_start": False,
     "pixaroma_last_seen": 0,  # highest episode number already shown to the user
+    "pixaroma_history": [],  # episodes Deziporama has imported (re-offered if deleted from disk)
+    "pixaroma_ignored": [],  # episodes the user does not want to be offered any more
+    "pixaroma_history_seeded": False,  # history filled once from the episodes already on disk
 }
 HEALTH_CHECK_MS = 2000
 GEAR_COLOR = "#ff8a1f"  # logo orange: stands out on the dark banner
@@ -204,6 +207,7 @@ class App:
         self._schedule(HEALTH_CHECK_MS, self._check_health)
         self._set_running(False)
         self._update_shortcut_button()
+        self._seed_pixaroma_history()
         if self.cfg["pixaroma_check_at_start"]:
             self._check_pixaroma_news()
         if at_login:
@@ -317,9 +321,34 @@ class App:
         self.pixaroma_window = PixaromaWindow(
             self.root, self._pixaroma_dest(), self.cfg["pixaroma_last_seen"],
             scan_dir=Path(self.pixaroma_var.get()),
+            ignored=set(self.cfg["pixaroma_ignored"]),
+            on_imported=lambda number: self._record_imported([number]),
+            on_ignore=self._set_ignored,
             on_message=lambda text, tag: self.messages.put((text, tag)),
             on_result=self.results.put,
             on_seen=self._pixaroma_seen)
+
+    def _seed_pixaroma_history(self) -> None:
+        """Once: the episodes already on disk count as imported by Deziporama."""
+        if self.cfg["pixaroma_history_seeded"] or not self.pixaroma_var.get():
+            return
+        on_disk = pixaroma.imported_numbers(Path(self.pixaroma_var.get()))
+        self.cfg["pixaroma_history"] = sorted(set(self.cfg["pixaroma_history"]) | on_disk)
+        self.cfg["pixaroma_history_seeded"] = True
+        self._save()
+
+    def _record_imported(self, numbers) -> None:
+        """Imported on purpose: remembered (offered again if deleted) and no longer ignored."""
+        numbers = set(numbers)
+        if numbers:
+            self.cfg["pixaroma_history"] = sorted(set(self.cfg["pixaroma_history"]) | numbers)
+            self.cfg["pixaroma_ignored"] = sorted(set(self.cfg["pixaroma_ignored"]) - numbers)
+            self._save()
+
+    def _set_ignored(self, numbers, ignored: bool) -> None:
+        current = set(self.cfg["pixaroma_ignored"])
+        self.cfg["pixaroma_ignored"] = sorted(current | set(numbers) if ignored else current - set(numbers))
+        self._save()
 
     def _pixaroma_seen(self, newest: int) -> None:
         """The list was shown: episodes up to `newest` are no longer "new" next time."""
@@ -348,22 +377,33 @@ class App:
 
         self._run_background(work)
 
+    def _episodes_to_offer(self, episodes: list) -> list:
+        """New episodes, plus those Deziporama imported and that were deleted since,
+        except the ones on disk and the ones the user chose not to be offered any more."""
+        on_disk = pixaroma.imported_numbers(Path(self.pixaroma_var.get()))
+        history, ignored = set(self.cfg["pixaroma_history"]), set(self.cfg["pixaroma_ignored"])
+        return [ep for ep in episodes
+                if ep.number not in on_disk and ep.number not in ignored
+                and (ep.number > self.cfg["pixaroma_last_seen"] or ep.number in history)]
+
     def _offer_new_episodes(self, episodes: list) -> None:
-        imported = pixaroma.imported_numbers(Path(self.pixaroma_var.get()))
-        new = [ep for ep in episodes
-               if ep.number > self.cfg["pixaroma_last_seen"] and ep.number not in imported]
+        new = self._episodes_to_offer(episodes)
         if not new:
             self._tell(t("log_pixaroma_up_to_date"), "ignored")
             return
         names = "\n".join(ep.folder_name for ep in new)
-        if choice_dialog(self.root, TITLE, t("pixaroma_new_question", count=len(new), names=names),
-                         [(t("download"), True), (t("later"), False)]) is not True:
-            return  # still "new" next time
+        answer = choice_dialog(self.root, TITLE, t("pixaroma_new_question", count=len(new), names=names),
+                               [(t("download"), True), (t("later"), False), (t("dont_offer_again"), "ignore")])
+        if answer == "ignore":
+            self._set_ignored({ep.number for ep in new}, True)
+            return
+        if answer is not True:
+            return  # offered again next time
         dest = self._pixaroma_dest()
         self.progress_window = ProgressWindow(self.root)
 
         def work():
-            available, failed = [], 0
+            available, imported, failed = [], [], 0
             for index, ep in enumerate(new, 1):
                 self.messages.put((t("log_pixaroma_downloading", name=ep.zip_name), "ignored"))
                 last = {}
@@ -380,17 +420,19 @@ class App:
                 self.results.put(result)
                 if result.status == "imported":
                     available.append(result.target.name)
+                    imported.append(ep.number)
                 else:
                     failed += 1
-            self.commands.put(("pixaroma_done", available, failed, max(ep.number for ep in new)))
+            self.commands.put(("pixaroma_done", available, imported, failed, max(ep.number for ep in new)))
 
         self._run_background(work)
 
-    def _pixaroma_downloaded(self, available: list, failed: int, newest: int) -> None:
+    def _pixaroma_downloaded(self, available: list, imported: list, failed: int, newest: int) -> None:
         """Download, extraction and renaming are finished: close the progress window and report."""
         if self.progress_window:
             self.progress_window.close()
             self.progress_window = None
+        self._record_imported(imported)
         self._pixaroma_seen(newest)
         parts = []
         if available:
@@ -622,6 +664,9 @@ class App:
             else self.pixaroma_sub_var.get(),
             "pixaroma_check_at_start": self.pixaroma_check_var.get(),
             "pixaroma_last_seen": self.cfg.get("pixaroma_last_seen", 0),
+            "pixaroma_history": sorted(set(self.cfg.get("pixaroma_history", []))),
+            "pixaroma_ignored": sorted(set(self.cfg.get("pixaroma_ignored", []))),
+            "pixaroma_history_seeded": self.cfg.get("pixaroma_history_seeded", False),
         }
         self._update_summary()
         try:

@@ -28,7 +28,7 @@ def five_episodes():
 @pytest.fixture
 def make(tk_root, tmp_path):
     windows = []
-    calls = {"messages": [], "results": [], "seen": [], "imported": []}
+    calls = {"messages": [], "results": [], "seen": [], "imported": [], "recorded": [], "ignore": []}
 
     def fake_import(episode, dest):
         calls["imported"].append(episode.number)
@@ -36,9 +36,11 @@ def make(tk_root, tmp_path):
         target.mkdir(parents=True)
         return ImportResult("imported", Path(episode.zip_name), target)
 
-    def build(fetch=None, last_seen=3):
+    def build(fetch=None, last_seen=3, ignored=()):
         w = pixaroma_window.PixaromaWindow(
-            tk_root, tmp_path / "2026", last_seen, scan_dir=tmp_path,
+            tk_root, tmp_path / "2026", last_seen, scan_dir=tmp_path, ignored=set(ignored),
+            on_imported=calls["recorded"].append,
+            on_ignore=lambda numbers, flag: calls["ignore"].append((sorted(numbers), flag)),
             fetch=fetch or five_episodes, import_episode=fake_import,
             on_message=lambda text, tag: calls["messages"].append((text, tag)),
             on_result=calls["results"].append, on_seen=calls["seen"].append,
@@ -62,8 +64,8 @@ def test_lists_episodes_newest_first_with_status(make, tmp_path):
     (tmp_path / "2025" / "Ep02 - Two").mkdir(parents=True)  # imported earlier, in another subfolder
     w = make(last_seen=3)
     assert [(r[0], r[1], r[5]) for r in rows(w)] == [
-        ("5", "Five", "Coming soon"), ("4", "Four", "New"), ("3", "Three", ""),
-        ("2", "Two", "Imported"), ("1", "One", "")]
+        ("5", "Five", "New"), ("4", "Four", "New"), ("3", "Three", "Not imported"),
+        ("2", "Two", "Imported"), ("1", "One", "Not imported")]
     assert rows(w)[1][2:5] == ("Video", "2", "1.2 KB")
 
 
@@ -124,3 +126,46 @@ def test_texts_follow_language(make):
     assert w.window.title() == "Épisodes Pixaroma"
     assert w.tree.heading("status", "text") == "État"
     assert rows(w)[1][5] == "Nouveau"
+
+
+
+# --- History and ignored episodes ---------------------------------------------------
+
+def test_coming_soon_not_imported(make):
+    w = make(last_seen=5)
+    assert rows(w)[0][5] == "Coming soon – not imported"
+
+
+def test_ignored_status(make):
+    w = make(ignored={1, 3})
+    statuses = {r[0]: r[5] for r in rows(w)}
+    assert statuses["1"] == "Ignored" and statuses["3"] == "Ignored"
+
+
+def test_ignore_and_offer_again_selected(make):
+    w = make()
+    w.tree.selection_set(["1", "3"])
+    w.ignore_selected()
+    assert make.calls["ignore"] == [([1, 3], True)]
+    assert {r[0]: r[5] for r in rows(w)}["3"] == "Ignored"
+    w.tree.selection_set(["3"])
+    w.offer_again_selected()
+    assert make.calls["ignore"][-1] == ([3], False)
+    assert {r[0]: r[5] for r in rows(w)}["3"] == "Not imported"
+
+
+def test_import_records_history_and_unignores(make):
+    w = make(ignored={4})
+    w.tree.selection_set(["4"])
+    w.import_selected()
+    w.process_queue()
+    assert make.calls["recorded"] == [4]
+    assert {r[0]: r[5] for r in rows(w)}["4"] == "Imported"
+    assert 4 not in w.ignored
+
+
+def test_ignore_buttons_translated(make):
+    i18n.set_language("fr")
+    w = make()
+    assert w.ignore_btn.cget("text") == "Ne plus proposer"
+    assert w.offer_again_btn.cget("text") == "Proposer à nouveau"

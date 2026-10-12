@@ -982,3 +982,78 @@ def test_tray_pixaroma_reports_failures(tray_pixaroma, monkeypatch):
     monkeypatch.setattr(app.pixaroma, "import_episode", failing)
     run_tray_pixaroma(w)
     assert w.questions[-1] == "2 episode(s) could not be imported (see the log)."
+
+
+# --- Imported history and ignored episodes ----------------------------------------
+
+def test_tray_offers_new_and_deleted_episodes(tray_pixaroma):
+    w = tray_pixaroma
+    w.cfg["pixaroma_history"] = [2, 4]  # 2: imported then deleted; 4: still on disk
+    run_tray_pixaroma(w)
+    offered = w.questions[0]
+    assert "Ep06 - T6" in offered and "Ep05 - T5" in offered and "Ep02 - T2" in offered
+    assert "Ep04" not in offered and "Ep01" not in offered and "Ep03" not in offered
+
+
+def test_tray_never_offers_ignored_episodes(tray_pixaroma):
+    w = tray_pixaroma
+    w.cfg["pixaroma_history"] = [2]
+    w.cfg["pixaroma_ignored"] = [2, 5]
+    run_tray_pixaroma(w)
+    assert "Ep06 - T6" in w.questions[0]
+    assert "Ep05" not in w.questions[0] and "Ep02" not in w.questions[0]
+
+
+def test_tray_dont_offer_again_button(tray_pixaroma, saved):
+    w = tray_pixaroma
+    w.answer.reply = "ignore"
+    run_tray_pixaroma(w)
+    assert w.imported == []
+    assert sorted(saved[-1]["pixaroma_ignored"]) == [5, 6]
+
+
+def test_tray_import_records_history(tray_pixaroma, saved):
+    w = tray_pixaroma
+    run_tray_pixaroma(w)
+    assert sorted(saved[-1]["pixaroma_history"]) == [5, 6]
+
+
+def test_window_import_and_ignore_are_saved(window, fake_pixaroma_window, saved, tmp_path):
+    window.pixaroma_var.set(str(tmp_path / "Pix"))
+    window.cfg["pixaroma_ignored"] = [7, 9]
+    window._open_pixaroma()
+    cb = fake_pixaroma_window.instances[0].callbacks
+    assert cb["ignored"] == {7, 9}
+    cb["on_imported"](9)
+    assert 9 in saved[-1]["pixaroma_history"] and 9 not in saved[-1]["pixaroma_ignored"]
+    cb["on_ignore"]({3, 4}, True)
+    assert sorted(saved[-1]["pixaroma_ignored"]) == [3, 4, 7]
+    cb["on_ignore"]({3}, False)
+    assert sorted(saved[-1]["pixaroma_ignored"]) == [4, 7]
+
+
+def test_history_seeded_once_from_disk(tk_root, fakes, monkeypatch, tmp_path, saved):
+    for name in ("Ep01 - One", "2025/Ep03 - Three", "Other"):
+        (tmp_path / "Pix" / name).mkdir(parents=True)
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(
+        app.DEFAULTS, language="en", pixaroma_dir=str(tmp_path / "Pix")))
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        assert sorted(a.cfg["pixaroma_history"]) == [1, 3]
+        assert a.cfg["pixaroma_history_seeded"] is True
+    finally:
+        a._quit()
+
+
+def test_history_not_reseeded(tk_root, fakes, monkeypatch, tmp_path):
+    (tmp_path / "Pix" / "Ep01 - One").mkdir(parents=True)
+    monkeypatch.setattr(app, "load_config", lambda path=None: dict(
+        app.DEFAULTS, language="en", pixaroma_dir=str(tmp_path / "Pix"),
+        pixaroma_history=[38], pixaroma_history_seeded=True))
+    top = tk.Toplevel(tk_root)
+    a = app.App(top)
+    try:
+        assert a.cfg["pixaroma_history"] == [38]
+    finally:
+        a._quit()

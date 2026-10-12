@@ -35,6 +35,9 @@ class PixaromaWindow:
 
     def __init__(self, parent, pixaroma_dir: Path, last_seen: int, *,
                  scan_dir: Path | None = None,
+                 ignored: set[int] | None = None,
+                 on_imported: Callable[[int], None] = lambda number: None,
+                 on_ignore: Callable[[set[int], bool], None] = lambda numbers, ignored: None,
                  fetch: Callable[[], list] = pixaroma.fetch_episodes,
                  import_episode: Callable[[pixaroma.Episode, Path], ImportResult] = pixaroma.import_episode,
                  on_message: Callable[[str, str], None], on_result: Callable[[ImportResult], None],
@@ -43,6 +46,8 @@ class PixaromaWindow:
         self.pixaroma_dir = Path(pixaroma_dir)  # where episodes are imported
         self.scan_dir = Path(scan_dir or pixaroma_dir)  # where imported episodes are looked for
         self.last_seen = last_seen
+        self.ignored = set(ignored or ())  # episodes the user does not want to be offered
+        self._on_imported, self._on_ignore = on_imported, on_ignore
         self._fetch, self._import = fetch, import_episode
         self._on_message, self._on_result, self._on_seen = on_message, on_result, on_seen
         self._run_background = run_background
@@ -83,6 +88,10 @@ class PixaromaWindow:
         self.status_label.pack(side="left")
         self.import_btn = ttk.Button(bottom, text=t("pixaroma_import"), command=self.import_selected)
         self.import_btn.pack(side="right")
+        self.offer_again_btn = ttk.Button(bottom, text=t("offer_again"), command=self.offer_again_selected)
+        self.offer_again_btn.pack(side="right", padx=(0, 6))
+        self.ignore_btn = ttk.Button(bottom, text=t("dont_offer_again"), command=self.ignore_selected)
+        self.ignore_btn.pack(side="right", padx=(0, 6))
 
         center_on_screen(self.window)
         self.load()
@@ -107,6 +116,9 @@ class PixaromaWindow:
             elif kind == "failed":
                 self.status_label.configure(text=t("pixaroma_list_failed", error=payload))
             elif kind == "imported":
+                for number in payload:  # imported on purpose: no longer ignored
+                    self.ignored.discard(number)
+                    self._on_imported(number)
                 self.import_btn.configure(state="normal")
                 self._show_rows()
 
@@ -128,10 +140,14 @@ class PixaromaWindow:
         self.import_btn.configure(state="disabled")
 
         def work():
+            done = []
             for ep in chosen:
                 self._on_message(t("log_pixaroma_downloading", name=ep.zip_name), "ignored")
-                self._on_result(self._import(ep, self.pixaroma_dir))
-            self._queue.put(("imported", None))
+                result = self._import(ep, self.pixaroma_dir)
+                self._on_result(result)
+                if result.status == "imported":
+                    done.append(ep.number)
+            self._queue.put(("imported", done))
 
         self._run_background(work)
 
@@ -148,14 +164,34 @@ class PixaromaWindow:
     def category_choices(self) -> list[str]:
         return [t("pixaroma_all_categories"), *sorted({ep.category for ep in self.episodes if ep.category})]
 
+    def _selected_numbers(self) -> set[int]:
+        return {int(i) for i in self.tree.selection()}
+
+    def ignore_selected(self) -> None:
+        """The selected episodes will no longer be offered by the tray "Pixaroma" command."""
+        numbers = self._selected_numbers()
+        if numbers:
+            self.ignored |= numbers
+            self._on_ignore(numbers, True)
+            self._show_rows()
+
+    def offer_again_selected(self) -> None:
+        numbers = self._selected_numbers() & self.ignored
+        if numbers:
+            self.ignored -= numbers
+            self._on_ignore(numbers, False)
+            self._show_rows()
+
     def _status(self, episode: pixaroma.Episode, imported: set[int]) -> str:
         if episode.number in imported:
             return t("status_imported")
-        if episode.coming_soon:
-            return t("status_coming_soon")
+        if episode.number in self.ignored:
+            return t("status_ignored")
         if episode.number > self.last_seen:
             return t("status_new")
-        return ""
+        if episode.coming_soon:
+            return t("status_coming_soon_not_imported")
+        return t("status_not_imported")
 
     def _show_rows(self) -> None:
         selection = self.tree.selection()
