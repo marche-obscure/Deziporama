@@ -20,7 +20,7 @@ Deziporama never connects to Discord. It only watches your Downloads folder, so 
 - **Safe**: archives trying to write outside their folder are rejected, extraction is atomic, and there are size limits.
 - **Stays out of the way**: minimizes to the notification area, can start at Windows sign-in, and only one copy runs at a time.
 - **Desktop shortcut** offered on first launch, or available from a button later.
-- **Pixaroma episodes**: list the free episodes of [workflows.pixaroma.com](https://workflows.pixaroma.com/), see which ones are new or already imported, and import them in one click into folders named `Ep## - Title`.
+- **Pixaroma episodes**: list the free episodes of [workflows.pixaroma.com](https://workflows.pixaroma.com/), see which ones are new, imported or missing, and import them in one click into folders named `Ep## - Title`, from the window or straight from the notification area.
 - **English, French and German**: chosen on first launch, changeable anytime from the banner.
 
 ## Requirements
@@ -78,9 +78,11 @@ You can change the language later with the selector in the top-right corner of t
    - **Watched folder**: your Downloads folder (set by default).
    - **Workflows folder**: your ComfyUI workflows folder, usually `ComfyUI\user\default\workflows`.
    - **Subfolder**: where downloads should go; *New…* creates one, for example one per Discord channel.
-   - **Pixaroma folder**: where Pixaroma episodes are imported.
+   - **Pixaroma folder** and **Pixaroma subfolder**: where Pixaroma episodes are imported, for example one subfolder per year.
+
+   While watching is running, the watched and workflows folders are locked: the settings window offers a **Stop watching** button, and asks whether to restart watching when you click **OK**.
 2. Click **Start**, then download workflows as usual.
-3. Click **Pixaroma** to list the Pixaroma episodes, select some, then click **Import selected**.
+3. Click **Pixaroma** to list the Pixaroma episodes (see [Pixaroma](#pixaroma) below).
 
 The log shows each file:
 
@@ -99,6 +101,34 @@ After fixing an error (for example, a drive that was unplugged), click **Retry e
 - **Start at Windows sign-in**: Deziporama starts minimized next to the clock, already watching.
 - **Check for new Pixaroma episodes at start**: a line in the log tells you when new episodes are out.
 - **Minimize** sends the window to the notification area. **Close** asks whether to minimize or quit.
+
+## Pixaroma
+
+Deziporama reads the free episode list and ZIP files from [workflows.pixaroma.com](https://workflows.pixaroma.com/), only when you ask for it (or once at start if the option is ticked). It never polls the site in the background.
+
+### Episode window
+
+The **Pixaroma** button lists every episode, newest first, with its category, number of workflows, size and status:
+
+| Status | Meaning |
+|---|---|
+| Imported | An `Ep## - Title` folder exists in the Pixaroma folder or one of its subfolders |
+| New | Released since you last opened the list |
+| Not imported | Not on your disk |
+| Coming soon – not imported | Announced on the site, not on your disk |
+| Ignored | Marked *Don't offer again* |
+
+Select one or more episodes, then click **Import selected**. Double-click an episode to watch its video. **Don't offer again** and **Offer again** act on the selected episodes.
+
+### From the notification area
+
+Right-click the Deziporama icon next to the clock, then choose **Pixaroma**. Deziporama checks the site without opening its window and offers:
+
+- the new episodes;
+- the episodes it imported earlier and that you have deleted since;
+- but never the episodes marked *Don't offer again*.
+
+Choose **Download**, **Later** or **Don't offer again**. While downloading, a small window shows the episode, the step (downloading, then extracting) and a progress bar. When everything is extracted and renamed, a **Pixaroma workflows available** window lists the new folders.
 
 ## Development
 
