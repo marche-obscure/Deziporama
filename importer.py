@@ -142,8 +142,23 @@ def _single_root_folder(extracted: Path) -> Path | None:
     return None
 
 
+def _extract(z: zipfile.ZipFile, members: list[zipfile.ZipInfo], dest: Path,
+             progress: Callable[[int, int], None] | None) -> None:
+    """Extracts `members` one by one, reporting (bytes done, total bytes) after each."""
+    total = sum(info.file_size for info in members)
+    done = 0
+    if progress:
+        progress(0, total)
+    for info in members:
+        z.extract(info, dest)
+        done += info.file_size
+        if progress:
+            progress(done, total)
+
+
 def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None],
-                folder_name: str | None = None) -> ImportResult:
+                folder_name: str | None = None,
+                progress: Callable[[int, int], None] | None = None) -> ImportResult:
     if not is_workflow_zip(source):
         return ImportResult("ignored", source, None, t("msg_no_workflow_in_zip"))
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -151,8 +166,8 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None],
     try:
         with zipfile.ZipFile(source) as z:
             _check_entries(z, tmp)
-            members = [n for n in z.namelist() if not _is_macos_metadata(n)]
-            z.extractall(tmp, members)
+            members = [info for info in z.infolist() if not _is_macos_metadata(info.filename)]
+            _extract(z, members, tmp, progress)
         folder = _single_root_folder(tmp)
         if folder:
             # The zip only holds one folder: place it directly, without a nested folder.
@@ -175,10 +190,12 @@ def _import_zip(source: Path, dest_dir: Path, trash: Callable[[str], None],
 
 def import_file(source: Path, dest_dir: Path,
                 trash: Callable[[str], None] = send2trash,
-                folder_name: str | None = None) -> ImportResult:
+                folder_name: str | None = None,
+                progress: Callable[[int, int], None] | None = None) -> ImportResult:
     """Files a downloaded workflow into `dest_dir`. Never raises.
 
     `folder_name` imposes the name of the folder created for a zip (used as is).
+    `progress(done, total)` follows the extraction of a zip, in bytes.
     """
     source, dest_dir = Path(source), Path(dest_dir)
     try:
@@ -186,7 +203,7 @@ def import_file(source: Path, dest_dir: Path,
         if ext == ".json":
             return _import_json(source, dest_dir)
         if ext == ".zip":
-            return _import_zip(source, dest_dir, trash, folder_name)
+            return _import_zip(source, dest_dir, trash, folder_name, progress)
         return ImportResult("ignored", source, None, t("msg_unsupported"))
     except Exception as e:  # noqa: BLE001 - the caller must never crash
         return ImportResult("error", source, None, str(e) or e.__class__.__name__)

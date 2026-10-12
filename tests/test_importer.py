@@ -373,3 +373,16 @@ def test_capitalized_name_collision_ignores_case(tmp_path):
     r = import_file(src, dest, trash=lambda p: None)
     assert r.target.name == "Ep33 Workflows (2)"
     assert sorted(leftovers(dest)) == ["EP33 WORKFLOWS", "Ep33 Workflows (2)"]
+
+
+# --- Progress -------------------------------------------------------------------------
+
+def test_zip_extraction_reports_progress(tmp_path):
+    src = make_zip(tmp_path / "pack.zip", {"wf.json": json.dumps(UI), "a.bin": b"x" * 5000, "b.bin": b"y" * 3000})
+    seen = []
+    r = import_file(src, tmp_path / "out", trash=lambda p: None, progress=lambda done, total: seen.append((done, total)))
+    assert r.status == "imported"
+    total = seen[-1][1]
+    assert total == len(json.dumps(UI)) + 8000
+    assert seen[-1][0] == total  # ends at 100 %
+    assert [d for d, _ in seen] == sorted(d for d, _ in seen)  # never goes back

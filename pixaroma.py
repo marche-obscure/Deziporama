@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from i18n import t
 from importer import ImportResult, import_file
@@ -113,19 +114,35 @@ def imported_numbers(folder: Path) -> set[int]:
     return numbers
 
 
-def import_episode(episode: Episode, dest_dir: Path, base_url: str = BASE_URL) -> ImportResult:
-    """Downloads the episode zip, then extracts it into dest_dir as "Ep## - Title". Never raises."""
+CHUNK = 64 * 1024
+
+
+def import_episode(episode: Episode, dest_dir: Path, base_url: str = BASE_URL,
+                   progress: Callable[[str, int, int], None] | None = None) -> ImportResult:
+    """Downloads the episode zip, then extracts it into dest_dir as "Ep## - Title". Never raises.
+
+    `progress(phase, done, total)` follows the "download" then the "extract" phase, in bytes.
+    """
     work = Path(tempfile.mkdtemp(prefix="deziporama-"))
     archive = work / episode.zip_name
     try:
         try:
             with _open(episode.url(base_url)) as response, open(archive, "wb") as out:
-                shutil.copyfileobj(response, out)
+                total = int(response.headers.get("Content-Length") or 0) or episode.size
+                done = 0
+                if progress:
+                    progress("download", 0, total)
+                while chunk := response.read(CHUNK):
+                    out.write(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress("download", done, max(total, done))
         except (urllib.error.URLError, OSError) as e:
             return ImportResult("error", archive, None,
                                 t("msg_download_failed", error=getattr(e, "reason", e)))
         # The temporary zip is deleted with its folder, not sent to the Recycle Bin.
+        extract_progress = (lambda d, tot: progress("extract", d, tot)) if progress else None
         return import_file(archive, Path(dest_dir), trash=lambda path: None,
-                           folder_name=episode.folder_name)
+                           folder_name=episode.folder_name, progress=extract_progress)
     finally:
         shutil.rmtree(work, ignore_errors=True)

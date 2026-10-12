@@ -884,13 +884,30 @@ def tray_pixaroma(window, monkeypatch, tmp_path):
     monkeypatch.setattr(app.pixaroma, "fetch_episodes", lambda: episodes)
     imported = []
 
-    def fake_import(episode, dest):
+    def fake_import(episode, dest, progress=None):
         imported.append((episode.number, Path(dest)))
+        if progress:
+            progress("download", 50, 100)
+            progress("extract", 100, 100)
         target = Path(dest) / episode.folder_name
         target.mkdir(parents=True)
         return app.ImportResult("imported", Path(episode.zip_name), target)
 
     monkeypatch.setattr(app.pixaroma, "import_episode", fake_import)
+    progress_windows = []
+
+    class FakeProgress:
+        def __init__(self, parent):
+            self.updates, self.closed = [], False
+            progress_windows.append(self)
+
+        def update(self, *args):
+            self.updates.append(args)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(app, "ProgressWindow", FakeProgress)
     monkeypatch.setattr(app.App, "_run_background", lambda self, fn: fn())
     questions = []
 
@@ -901,6 +918,7 @@ def tray_pixaroma(window, monkeypatch, tmp_path):
     answer.reply = True
     monkeypatch.setattr(app, "choice_dialog", answer)
     window.imported, window.questions, window.answer = imported, questions, answer
+    window.progress_windows = progress_windows
     return window
 
 
@@ -917,7 +935,7 @@ def test_tray_pixaroma_downloads_new_episodes_without_window(tray_pixaroma, save
     assert "Ep06 - T6" in w.questions[0] and "Ep05 - T5" in w.questions[0]
     assert "Ep04" not in w.questions[0]  # already imported
     assert [n for n, _ in w.imported] == [6, 5]
-    assert w.questions[-1] == "2 Pixaroma episode(s) imported."  # shown in a dialog with OK
+    assert w.questions[-1] == "Pixaroma workflows available:\n\nEp06 - T6\nEp05 - T5"
     assert saved[-1]["pixaroma_last_seen"] == 6
     assert w.root.state() == "withdrawn"  # the main window stayed hidden
 
@@ -944,3 +962,23 @@ def test_tray_pixaroma_without_folder(tray_pixaroma):
     run_tray_pixaroma(w)
     assert w.imported == []
     assert w.questions == ["Error: choose the Pixaroma folder in the settings first."]
+
+
+def test_tray_pixaroma_shows_progress_then_closes_it(tray_pixaroma):
+    w = tray_pixaroma
+    run_tray_pixaroma(w)
+    [progress] = w.progress_windows
+    assert progress.updates[0] == ("Ep06 - T6", 1, 2, "download", 50, 100)
+    assert progress.updates[-1] == ("Ep05 - T5", 2, 2, "extract", 100, 100)
+    assert progress.closed
+
+
+def test_tray_pixaroma_reports_failures(tray_pixaroma, monkeypatch):
+    w = tray_pixaroma
+
+    def failing(episode, dest, progress=None):
+        return app.ImportResult("error", Path(episode.zip_name), None, "offline")
+
+    monkeypatch.setattr(app.pixaroma, "import_episode", failing)
+    run_tray_pixaroma(w)
+    assert w.questions[-1] == "2 episode(s) could not be imported (see the log)."

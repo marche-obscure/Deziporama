@@ -173,3 +173,18 @@ def test_import_episode_leaves_no_temporary_file(site, tmp_path, monkeypatch):
     ep = pixaroma.parse_episodes(episodes_js(episode_data(6)))[0]
     pixaroma.import_episode(ep, tmp_path / "P", site.base_url)
     assert list(temp_root.iterdir()) == []
+
+
+def test_import_episode_reports_download_then_extraction(site, tmp_path):
+    add_zip(site, "Ep7 Workflows.zip", {"Ep7/wf.json": json.dumps(UI), "Ep7/big.bin": "z" * 200_000})
+    ep = pixaroma.parse_episodes(episodes_js(episode_data(7, "Seven", path="workflows/Ep7 Workflows.zip")))[0]
+    events = []
+    r = pixaroma.import_episode(ep, tmp_path / "P", site.base_url,
+                                progress=lambda phase, done, total: events.append((phase, done, total)))
+    assert r.status == "imported"
+    phases = [p for p, _, _ in events]
+    assert phases[0] == "download" and phases[-1] == "extract"
+    assert phases == sorted(phases, key=["download", "extract"].index)  # download first, then extraction
+    last_download = [e for e in events if e[0] == "download"][-1]
+    assert last_download[1] == last_download[2] > 0  # download reached 100 %
+    assert events[-1][1] == events[-1][2]  # extraction reached 100 %

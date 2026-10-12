@@ -21,6 +21,7 @@ import single_instance
 from i18n import t
 from importer import ImportResult
 from pixaroma_window import PixaromaWindow
+from progress_window import ProgressWindow
 from settings_dialog import SettingsDialog, valid_subfolder_name  # noqa: F401 (re-exported)
 from tray import TITLE, TrayIcon
 from ui import apply_app_icon, center_on_screen, set_app_id
@@ -121,6 +122,7 @@ class App:
         self.commands: queue.Queue = queue.Queue()  # orders coming from the tray icon (other thread)
         self.messages: queue.Queue = queue.Queue()  # (text, tag) log lines coming from other threads
         self.pixaroma_window: PixaromaWindow | None = None
+        self.progress_window: ProgressWindow | None = None
         self.watcher: FolderWatcher | None = None
         self._scheduled: dict[str, str] = {}
         self._translatable: list[tuple[object, str]] = []  # (widget, text key), see _retranslate
@@ -358,21 +360,44 @@ class App:
                          [(t("download"), True), (t("later"), False)]) is not True:
             return  # still "new" next time
         dest = self._pixaroma_dest()
+        self.progress_window = ProgressWindow(self.root)
 
         def work():
-            done = 0
-            for ep in new:
+            available, failed = [], 0
+            for index, ep in enumerate(new, 1):
                 self.messages.put((t("log_pixaroma_downloading", name=ep.zip_name), "ignored"))
-                result = pixaroma.import_episode(ep, dest)
+                last = {}
+
+                def progress(phase, done, total, ep=ep, index=index, last=last):
+                    # Only whole-percent changes go to the Tk thread.
+                    percent = done * 100 // total if total else 0
+                    if last.get(phase) != percent:
+                        last[phase] = percent
+                        self.commands.put(("pixaroma_progress", ep.folder_name, index, len(new),
+                                           phase, done, total))
+
+                result = pixaroma.import_episode(ep, dest, progress=progress)
                 self.results.put(result)
-                done += result.status == "imported"
-            self.commands.put(("pixaroma_done", done, max(ep.number for ep in new)))
+                if result.status == "imported":
+                    available.append(result.target.name)
+                else:
+                    failed += 1
+            self.commands.put(("pixaroma_done", available, failed, max(ep.number for ep in new)))
 
         self._run_background(work)
 
-    def _pixaroma_downloaded(self, done: int, newest: int) -> None:
+    def _pixaroma_downloaded(self, available: list, failed: int, newest: int) -> None:
+        """Download, extraction and renaming are finished: close the progress window and report."""
+        if self.progress_window:
+            self.progress_window.close()
+            self.progress_window = None
         self._pixaroma_seen(newest)
-        self._tell(t("pixaroma_imported_notify", count=done), "ok")
+        parts = []
+        if available:
+            parts.append(t("pixaroma_available", names="\n".join(available)))
+        if failed:
+            parts.append(t("pixaroma_some_failed", count=failed))
+        self._tell("\n\n".join(parts), "warn" if failed else "ok")
 
     def _check_pixaroma_news(self) -> None:
         last_seen = self.cfg["pixaroma_last_seen"]
@@ -545,6 +570,9 @@ class App:
                 self._tray_pixaroma()
             elif command[0] == "pixaroma_found":
                 self._offer_new_episodes(command[1])
+            elif command[0] == "pixaroma_progress":
+                if self.progress_window:
+                    self.progress_window.update(*command[1:])
             elif command[0] == "pixaroma_done":
                 self._pixaroma_downloaded(*command[1:])
             elif command[0] == "pixaroma_failed":
